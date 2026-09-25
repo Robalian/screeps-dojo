@@ -1,5 +1,7 @@
 import type { FrameObject, StageLayout } from '../api/types.ts';
+import type { PowerImages } from './powerImages.ts';
 import { lerp, tFx as effectProgressAt } from '../render/geometry.ts';
+import { drawPowerIcon, drawRenewFlash, drawSpawnFlare } from './powerCreeps.ts';
 import { fillRenderText, parseRenderFont } from './renderFont.ts';
 import { RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
 
@@ -8,7 +10,26 @@ interface ActionTarget {
 	y: number;
 }
 
-type ActionLog = Record<string, ActionTarget | undefined>;
+// The known keys carry their usual ActionTarget shape; power/spawned/healed
+// are the power-creep additions (usePower, spawn, renewCreep). The index
+// signature keeps this assignable from FrameObject.actionLog (typed
+// `unknown` there) and tolerant of any other engine key nobody reads yet.
+interface ActionLog {
+	attack?: ActionTarget;
+	rangedAttack?: ActionTarget;
+	harvest?: ActionTarget;
+	build?: ActionTarget;
+	repair?: ActionTarget;
+	dismantle?: ActionTarget;
+	upgradeController?: ActionTarget;
+	heal?: ActionTarget;
+	rangedHeal?: ActionTarget;
+	rangedMassAttack?: ActionTarget;
+	power?: { id: number; x: number; y: number };
+	spawned?: boolean;
+	healed?: ActionTarget;
+	[key: string]: unknown;
+}
 
 interface WorldPosition {
 	x: number;
@@ -133,6 +154,7 @@ export function drawActionEffects(
 	subFrame: number | null,
 	offsets: StageLayout['offsets'],
 	roomName: string,
+	powerImages?: PowerImages,
 ): void {
 	const actionLog = object.actionLog as ActionLog | undefined;
 	if (!actionLog) return;
@@ -192,6 +214,20 @@ export function drawActionEffects(
 		ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
 		ctx.stroke();
 		ctx.restore();
+	}
+
+	if (object.type === 'powerCreep') {
+		const progress = subFrame === null ? null : effectProgress;
+		if (actionLog.spawned) drawSpawnFlare(ctx, centerX, centerY, progress);
+		if (actionLog.healed && actionLog.healed.x === object.x && actionLog.healed.y === object.y) {
+			drawRenewFlash(ctx, centerX, centerY, progress);
+		}
+	}
+	if (actionLog.power) {
+		const target = worldTarget(actionLog.power);
+		const self = actionLog.power.x === object.x && actionLog.power.y === object.y;
+		if (!self) drawAnimatedBeam(actionLog.power, RENDER_COLORS.powerCreep.beam, 0.12);
+		drawPowerIcon(ctx, actionLog.power.id, target.x, target.y, subFrame === null ? null : effectProgress, powerImages);
 	}
 }
 

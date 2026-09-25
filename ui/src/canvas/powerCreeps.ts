@@ -1,4 +1,7 @@
 import type { FrameObject } from '../api/types.ts';
+import type { PowerImages } from './powerImages.ts';
+import { POWER_BY_ID } from '../game/powerInfo.ts';
+import { text } from './primitives.ts';
 import { RENDER_COLORS } from './renderConstants.ts';
 import { POWER_CREEP_ART } from './powerCreepArt.ts';
 
@@ -65,5 +68,86 @@ export function drawPowerCreep(ctx: CanvasRenderingContext2D, object: FrameObjec
 	ctx.arc(tier.disc.cx, tier.disc.cy, tier.disc.r * 0.9, 0, Math.PI * 2);
 	ctx.fillStyle = ownerColor;
 	ctx.fill();
+	ctx.restore();
+}
+
+// A power creep's spawn: a red flare over its tile that shrinks away as the
+// creep settles in. Progress null (paused) holds it at its brightest instant
+// (p=0.5) rather than the fully-appeared end, so a scrub-to-spawn frame still
+// reads as "something happened here".
+export function drawSpawnFlare(ctx: CanvasRenderingContext2D, cx: number, cy: number, progress: number | null): void {
+	const p = progress === null ? 0.5 : progress;
+	ctx.save();
+	ctx.translate(cx, cy);
+	ctx.rotate(Math.PI / 8 * p);
+	ctx.globalAlpha = 1 - p;
+	ctx.fillStyle = RENDER_COLORS.powerCreep.spawnFlare;
+	ctx.beginPath();
+	ctx.arc(0, 0, 2, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.restore();
+}
+
+// renewCreep: a green disc-and-ring flash on the power creep's own tile,
+// brightest at the midpoint of the tick.
+export function drawRenewFlash(ctx: CanvasRenderingContext2D, cx: number, cy: number, progress: number | null): void {
+	const p = progress === null ? 0.5 : progress;
+	const alpha = 0.5 * Math.sin(Math.PI * p);
+	ctx.save();
+	ctx.fillStyle = RENDER_COLORS.powerCreep.renew;
+	ctx.strokeStyle = RENDER_COLORS.powerCreep.renew;
+	ctx.lineWidth = 0.1;
+	ctx.globalAlpha = alpha;
+	ctx.beginPath();
+	ctx.arc(cx, cy, 0.55, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.beginPath();
+	ctx.arc(cx, cy, 0.85, 0, Math.PI * 2);
+	ctx.stroke();
+	ctx.restore();
+}
+
+// usePower's icon pop: the power's texture (or a vector badge, unloaded/no
+// artwork) growing and fading in over the target tile. Scale runs 0.5→1 across
+// the whole pop; alpha rises to the midpoint and fades back — a pop, not a
+// hold. Paused (progress null) freezes it fully grown at a legible alpha.
+export function drawPowerIcon(
+	ctx: CanvasRenderingContext2D,
+	powerId: number,
+	cx: number,
+	cy: number,
+	progress: number | null,
+	images?: PowerImages,
+): void {
+	const power = POWER_BY_ID[powerId];
+	const paused = progress === null;
+	const p = paused ? 0 : (progress as number);
+	const scale = paused ? 1 : 0.5 + 0.5 * p;
+	const alpha = paused ? 0.8 : 1 - Math.abs(2 * p - 1);
+	ctx.save();
+	ctx.globalAlpha = alpha;
+	const image = power && power.icon ? images?.[power.icon] : undefined;
+	if (image) {
+		// Official sprite: 3 tiles across at full pop.
+		const size = 3 * scale;
+		ctx.drawImage(image, cx - size / 2, cy - size / 2, size, size);
+	} else {
+		const ringRadius = 1.2 * scale;
+		ctx.beginPath();
+		ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+		ctx.strokeStyle = RENDER_COLORS.powerCreep.beam;
+		ctx.lineWidth = 0.12;
+		ctx.stroke();
+		ctx.save();
+		ctx.globalAlpha = alpha * 0.35;
+		ctx.fillStyle = RENDER_COLORS.powerCreep.iconFill;
+		ctx.beginPath();
+		ctx.arc(cx, cy, ringRadius, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.restore();
+		const short = power ? power.short : '?';
+		const fontSize = 0.9 * scale;
+		text(ctx, short, cx, cy + 0.35 * fontSize, { font: fontSize, align: 'center', fill: RENDER_COLORS.powerCreep.iconFill });
+	}
 	ctx.restore();
 }

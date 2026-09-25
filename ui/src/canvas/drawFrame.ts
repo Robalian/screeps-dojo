@@ -18,6 +18,8 @@ import {
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
 import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import type { ModImages } from './modImages.ts';
+import { drawSpawnFlare } from './powerCreeps.ts';
+import type { PowerImages } from './powerImages.ts';
 import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES, isCreepLike } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawMapVisuals } from './mapVisuals.ts';
@@ -38,6 +40,10 @@ interface DrawOptions {
 	// drawing routine falls back to vectors, so a recording still renders if the
 	// images never loaded.
 	modImages?: ModImages;
+	// Official power icons (see powerImages.ts). Optional everywhere: usePower's
+	// icon pop falls back to a vector badge when unloaded or the power has no
+	// artwork.
+	powerImages?: PowerImages;
 }
 
 interface ActionTarget {
@@ -158,7 +164,7 @@ export function drawFrame(
 		if (speech?.message) {
 			drawSpeechBubble(ctx, String(speech.message), position.worldX, position.worldY, speech.isPublic === true);
 		}
-		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
+		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room, options.powerImages);
 	}
 	// creeps that appear only next frame (spawned): fade in
 	if (nextFrame) {
@@ -174,6 +180,12 @@ export function drawFrame(
 				creepFacing(frames, frameIndex + 1, nextObject._id, layout),
 				subFrame as number,
 			);
+			// A power creep's first appearance is its spawn flare: the engine's
+			// `spawned` flag sits on this next frame's actionLog, but the creep
+			// itself isn't in baseFrame yet for drawActionEffects to see it there.
+			if (nextObject.type === 'powerCreep') {
+				drawSpawnFlare(ctx, position.worldX + 0.5, position.worldY + 0.5, subFrame as number);
+			}
 		}
 	}
 
@@ -199,7 +211,7 @@ export function drawFrame(
 			baseFrame.gameTime + (subFrame ?? 0),
 			object,
 		);
-		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
+		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room, options.powerImages);
 	}
 
 	// 2c) spawns: live energy core. Like towers, spawns are baked into the per-
