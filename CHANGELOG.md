@@ -7,6 +7,24 @@ behaviour changes, patch = fixes).
 
 ## [Unreleased]
 
+### Added
+
+- A scenario's power creeps live in its own `power-creeps.json` — no global roster and no opt-in,
+  the file's presence is what makes them available — seeded unspawned so the bot spawns them
+  itself, with a dedicated editor: a Form/JSON toggle on the Edit tab with per-power level steppers
+  and inline validation, plus a read-only **Power creeps** row on the scenario's ⚙ with Edit/Create.
+- Power creeps import from a live server two ways: the roster editor's **Import from server** button
+  loads an unsaved draft roster, and the map import dialog's **Power creeps** checkbox
+  (`--power-creeps` on the CLI) writes it straight to `power-creeps.json`.
+- New world API for seeding and placing power creeps: `seedPowerCreeps`, `addPowerCreep` (also
+  reachable as `addObject(room, 'powerCreep', ...)`), `setGpl`, and `resetPowerCreepCooldown` for
+  clearing the engine's 8-hour wall-clock respawn cooldown after a death.
+- Power creeps render with the game's own operator art and red tint, a beam and an icon pop on
+  `usePower`, a spawn flare, a renew flash, and a pulsing red flare plus a corner pip on anything
+  carrying an active effect.
+- The inspector turns every effect and power into a plain-English line, and shows a controller's
+  `isPowerEnabled` state.
+
 ### Changed
 
 - Scenarios load dojo's own code by package name —
