@@ -147,7 +147,10 @@ export function drawPowerIcon(
 		ctx.restore();
 		const short = power ? power.short : '?';
 		const fontSize = 0.9 * scale;
-		text(ctx, short, cx, cy + 0.35 * fontSize, { font: fontSize, align: 'center', fill: RENDER_COLORS.powerCreep.iconFill });
+		// text() sets its own globalAlpha from style.opacity (default 1) rather
+		// than inheriting the caller's — pass the pop's current alpha explicitly
+		// or the badge text renders solid regardless of the pop's fade.
+		text(ctx, short, cx, cy + 0.35 * fontSize, { font: fontSize, align: 'center', fill: RENDER_COLORS.powerCreep.iconFill, opacity: alpha });
 	}
 	ctx.restore();
 }

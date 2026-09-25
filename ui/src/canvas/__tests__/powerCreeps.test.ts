@@ -64,6 +64,27 @@ describe('power action animations', () => {
 		expect(log.some((c) => c.op === 'fillText' && c.args[0] === 'GO')).toBe(true);
 	});
 
+	it('drawPowerIcon fades the fallback badge text with the pop, not solid at alpha 1', () => {
+		// primitives.text() sets its own globalAlpha from style.opacity (default 1)
+		// rather than inheriting the caller's — the fillText call must be preceded
+		// by a set:globalAlpha matching the pop's current alpha, not left at 1.
+		const alphaBeforeFillText = (log: ReturnType<typeof mockCtx>['log']): number => {
+			const fillTextIndex = log.findIndex((c) => c.op === 'fillText');
+			for (let i = fillTextIndex - 1; i >= 0; i--) {
+				if (log[i].op === 'set:globalAlpha') return log[i].args[0] as number;
+			}
+			throw new Error('no set:globalAlpha before fillText');
+		};
+
+		const mid = mockCtx();
+		drawPowerIcon(mid.ctx, POWER_BY_KEY.GENERATE_OPS.id, 5, 5, 0.25);
+		expect(alphaBeforeFillText(mid.log)).toBeCloseTo(0.5, 5); // 1 - |2*0.25 - 1|
+
+		const paused = mockCtx();
+		drawPowerIcon(paused.ctx, POWER_BY_KEY.GENERATE_OPS.id, 5, 5, null);
+		expect(alphaBeforeFillText(paused.log)).toBeCloseTo(0.8, 5);
+	});
+
 	it('drawPowerIcon falls back to "?" for an unknown power id', () => {
 		const { ctx, log } = mockCtx();
 		drawPowerIcon(ctx, 9999, 5, 5, null);
