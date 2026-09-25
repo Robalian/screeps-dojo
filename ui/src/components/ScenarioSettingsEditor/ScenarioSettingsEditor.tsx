@@ -51,6 +51,7 @@ export function ScenarioSettingsEditor({ scenario, value, onChange, onOpenFile }
   // re-probes for the file after Create writes it.
   const [powerCreeps, setPowerCreeps] = useState<{ present: boolean; summary: string } | null>(null);
   const [filesVersion, setFilesVersion] = useState(0);
+  const [powerCreepsError, setPowerCreepsError] = useState<string | null>(null);
   // Edits live here, not in the serialized text: serializeDoc drops a row whose
   // side name is still empty, so a round-trip through the file would delete the
   // row the moment someone added it.
@@ -100,7 +101,13 @@ export function ScenarioSettingsEditor({ scenario, value, onChange, onOpenFile }
   }, [scenario, filesVersion]);
 
   const createPowerCreeps = async () => {
-    await api.saveFile(scenario, 'power-creeps.json', serializeRoster(emptyRoster()));
+    setPowerCreepsError(null);
+    try {
+      await api.saveFile(scenario, 'power-creeps.json', serializeRoster(emptyRoster()));
+    } catch (e) {
+      setPowerCreepsError((e as Error).message);
+      return;                    // don't open or re-probe a file that was never written
+    }
     setFilesVersion((v) => v + 1);
     onOpenFile?.('power-creeps.json');
   };
@@ -284,6 +291,7 @@ export function ScenarioSettingsEditor({ scenario, value, onChange, onOpenFile }
               : <button className={styles.link} onClick={createPowerCreeps}>Create</button>
           )}
         </div>
+        {powerCreepsError && <div className={styles.bad}>{powerCreepsError}</div>}
         <div className={styles.pcHint}>
           Available to the bot unspawned; it spawns them itself. Placed ones come from a map&rsquo;s powerCreeps.
           Import them with the map import&rsquo;s Power creeps checkbox, or with Import from server in the editor.
