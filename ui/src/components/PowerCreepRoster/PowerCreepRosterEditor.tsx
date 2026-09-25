@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import type { ScreepsProfile } from '../../api/types';
+import { POWER_ICON_URLS } from '../../canvas/browserPowerImages';
 import {
   POWER_BY_KEY, addPowerCreep, creepLevel, emptyRoster, issuesByPath, parseRosterDraft, removePowerCreep,
   renamePowerCreep, requiredGpl, serializeRoster, setPowerLevel, validateRoster,
@@ -159,7 +160,11 @@ export function PowerCreepRosterEditor({ scenario, text, onChange }: Props) {
                 return (
                   <div key={row.key} className={`${styles.row} ${row.level > 0 ? styles.learned : styles.unlearned}`} title={targets}>
                     <div className={styles.rowIconLabel}>
-                      <span className={styles.pill}>{row.short}</span>
+                      {POWER_ICON_URLS[row.icon] ? (
+                        <img className={styles.rowIcon} src={POWER_ICON_URLS[row.icon]} alt="" />
+                      ) : (
+                        <span className={styles.pill}>{row.short}</span>
+                      )}
                       <span className={styles.rowLabel}>{row.label}</span>
                     </div>
                     <div className={styles.stepper}>
