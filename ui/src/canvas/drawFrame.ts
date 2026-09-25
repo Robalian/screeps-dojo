@@ -19,6 +19,7 @@ import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from 
 import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import type { ModImages } from './modImages.ts';
 import { drawSpawnFlare } from './powerCreeps.ts';
+import { activeEffects, drawEffectFlares, drawEffectPips } from './powerEffects.ts';
 import type { PowerImages } from './powerImages.ts';
 import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES, isCreepLike } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
@@ -281,6 +282,17 @@ export function drawFrame(
 		}
 	}
 
+	// 2e) active power effect flares. activeEffects() first: stronghold
+	//     structures all carry never-pruned effect 1002, so compute a position
+	//     (which allocates) only for objects with a LIVE power effect. Uses
+	//     baseFrame.gameTime, like the construction-site pulse and the
+	//     inspector, so the canvas and inspector drop an effect on the same tick.
+	for (const object of baseObjectsInDrawOrder) {
+		if (!object.effects || activeEffects(object, baseFrame.gameTime).length === 0) continue;
+		const position = worldPosition(object.room, object.x, object.y);
+		if (position) drawEffectFlares(ctx, object, position.worldX, position.worldY, baseFrame.gameTime, subFrame);
+	}
+
 	// 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
 	//    command strings — no server round-trip; instant toggle)
 	if (options.showVisuals && tickFrame.visuals) {
@@ -301,6 +313,15 @@ export function drawFrame(
 	// creeps, effects, resources, and user RoomVisuals.
 	if (options.layers.rampart) {
 		ctx.drawImage(options.layers.rampart, 0, 0, widthInTiles, heightInTiles);
+	}
+
+	// 4b) active power effect corner pips: the final pass, after the rampart
+	//     overlay, so SHIELD and FORTIFY targets (ramparts and walls) don't
+	//     tint over them.
+	for (const object of baseObjectsInDrawOrder) {
+		if (!object.effects || activeEffects(object, baseFrame.gameTime).length === 0) continue;
+		const position = worldPosition(object.room, object.x, object.y);
+		if (position) drawEffectPips(ctx, object, position.worldX, position.worldY, baseFrame.gameTime, options.powerImages);
 	}
 
 	// 5) bot's Game.map.visual draws: a map-scale overlay above the rooms

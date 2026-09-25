@@ -120,4 +120,40 @@ describe('drawFrame spawn transition', () => {
     expect(draws[0].object._id).toBe('pc');
     expect(draws[0].object.type).toBe('powerCreep');
   });
+
+  it('draws the active-effect pip after the rampart overlay, for a tower under OPERATE_TOWER', () => {
+    const recording = {
+      meta: { scenario: 'power-effect-pip', endReason: 'running', ticks: 1 },
+      terrain: { W0N0: [] },
+      frames: [{
+        gameTime: 10,
+        flags: [],
+        objects: [
+          { _id: 'tower1', type: 'tower', room: 'W0N0', x: 10, y: 10,
+            effects: [{ effect: 3, power: 3, level: 1, endTime: 50 }] },
+        ],
+      }],
+    } as Recording;
+    const layout = {
+      rooms: ['W0N0'], offsets: { W0N0: { col: 0, row: 0 } },
+      pixelsPerRoom: 600, width: 600, height: 600,
+    } as StageLayout;
+    const sprites = { draw: () => undefined };
+    const rampartCanvas = {};
+    const layers = {
+      terrain: {}, structure: {}, rampart: rampartCanvas, prepare: () => undefined,
+      drawSwamps: () => undefined,
+    };
+
+    const { ctx, log } = mockCtx();
+    drawFrame(ctx, recording, 0, null, {
+      sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
+    });
+
+    expect(log.some((call) => call.op === 'fillText' && call.args[0] === 'OT')).toBe(true);
+    const rampartDrawIndex = log.findIndex((call) => call.op === 'drawImage' && call.args[0] === rampartCanvas);
+    const pipTextIndex = log.findIndex((call) => call.op === 'fillText' && call.args[0] === 'OT');
+    expect(rampartDrawIndex).toBeGreaterThanOrEqual(0);
+    expect(pipTextIndex).toBeGreaterThan(rampartDrawIndex);
+  });
 });

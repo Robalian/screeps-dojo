@@ -35,6 +35,16 @@ export function powerLevelValue<T>(value: T | readonly T[] | undefined, level: n
 	return Array.isArray(value) ? (value as readonly T[])[level - 1] : (value as T);
 }
 
+// Ruling F: the engine's driver (bulk.js) merges the `effects` array onto `{}`
+// after usePower nulls the field, so a real replay's raw `effects` can be an
+// index-keyed OBJECT (`{"0": {...}}`), not an array. Shared by the canvas
+// overlay (powerEffects.ts) and the inspector's effect list.
+export function effectEntries(raw: unknown): unknown[] {
+	if (Array.isArray(raw)) return raw;
+	if (raw && typeof raw === 'object') return Object.values(raw);
+	return [];
+}
+
 const n = (value: number): string => value.toLocaleString('en-US');
 const pct = (fraction: number): string => Math.round(fraction * 100) + '%';
 const at = (values: readonly number[], level: number): number => values[level - 1];
