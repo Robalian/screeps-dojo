@@ -86,4 +86,38 @@ describe('drawFrame spawn transition', () => {
 
     expect(drawnObjectIds).toEqual(['upper', 'lower']);
   });
+
+  it('draws a power creep through the same sprite dispatch as a creep', () => {
+    const recording = {
+      meta: { scenario: 'power-creep-draw', endReason: 'running', ticks: 1 },
+      terrain: { W0N0: [] },
+      frames: [{
+        gameTime: 1,
+        flags: [],
+        objects: [
+          { _id: 'pc', type: 'powerCreep', room: 'W0N0', x: 10, y: 10, level: 7, className: 'operator' },
+        ],
+      }],
+    } as Recording;
+    const layout = {
+      rooms: ['W0N0'], offsets: { W0N0: { col: 0, row: 0 } },
+      pixelsPerRoom: 600, width: 600, height: 600,
+    } as StageLayout;
+    const draws: Array<{ object: { _id: string; type: string } }> = [];
+    const sprites = {
+      draw: (_ctx: unknown, object: { _id: string; type: string }) => draws.push({ object }),
+    };
+    const layers = {
+      terrain: {}, structure: {}, rampart: null, prepare: () => undefined,
+      drawSwamps: () => undefined,
+    };
+
+    drawFrame(mockCtx().ctx, recording, 0, null, {
+      sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
+    });
+
+    expect(draws).toHaveLength(1);
+    expect(draws[0].object._id).toBe('pc');
+    expect(draws[0].object.type).toBe('powerCreep');
+  });
 });

@@ -23,7 +23,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 function objectLabel(o: FrameObject): string {
   const base = TYPE_LABELS[o.type] || (o.type ? o.type[0].toUpperCase() + o.type.slice(1) : 'Object');
-  if (o.type === 'creep' && o.name) return base + ' · ' + o.name;
+  if ((o.type === 'creep' || o.type === 'powerCreep') && o.name) return base + ' · ' + o.name;
   if (o.type === 'energy' || o.type === 'resource') {
     const amt = o.store ? Object.values(o.store).reduce((a, b) => a + b, 0) : undefined;
     return amt !== undefined ? base + ' · ' + amt : base;
@@ -223,7 +223,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
     if (hits.length === 0) { onSelectObject(null); setMenu(null); return; }
     if (hits.length === 1) { onSelectObject(hits[0]._id); setMenu(null); return; }
     // >1: order them sensibly (creeps/resources first, big static structures last) and show a picker.
-    const rank = (o: FrameObject) => (o.type === 'creep' ? 0 : o.type === 'energy' || o.type === 'resource' ? 1 : o.type === 'rampart' ? 9 : 5);
+    const rank = (o: FrameObject) => (o.type === 'creep' || o.type === 'powerCreep' ? 0 : o.type === 'energy' || o.type === 'resource' ? 1 : o.type === 'rampart' ? 9 : 5);
     hits.sort((a, b) => rank(a) - rank(b));
     const rect = containerRef.current!.getBoundingClientRect();
     setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, items: hits });

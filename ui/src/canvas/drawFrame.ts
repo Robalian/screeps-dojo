@@ -18,7 +18,7 @@ import {
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
 import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import type { ModImages } from './modImages.ts';
-import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
+import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES, isCreepLike } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawMapVisuals } from './mapVisuals.ts';
 import { drawUserVisuals } from './roomVisuals.ts';
@@ -106,7 +106,7 @@ export function drawFrame(
 
 	// 2) creeps (interpolated) + HP + effects
 	for (const object of baseObjectsInDrawOrder) {
-		if (object.type !== 'creep') continue;
+		if (!isCreepLike(object.type)) continue;
 		if (object.spawning) {
 			const releasedObject = nextObjectsById?.[object._id];
 			const nextCreep = releasedObject && !releasedObject.spawning ? releasedObject : null;
@@ -163,7 +163,7 @@ export function drawFrame(
 	// creeps that appear only next frame (spawned): fade in
 	if (nextFrame) {
 		for (const nextObject of nextObjectsInDrawOrder!) {
-			if (nextObject.type !== 'creep' || nextObject.spawning || baseObjectsById[nextObject._id]) continue;
+			if (!isCreepLike(nextObject.type) || nextObject.spawning || baseObjectsById[nextObject._id]) continue;
 			const position = worldPosition(nextObject.room, nextObject.x, nextObject.y);
 			if (!position) continue;
 			creepRenderer.draw(
@@ -340,8 +340,8 @@ function transferNods(frame: Frame, objectsById: Record<string, FrameObject>): R
 			const sourceObject = objectsById[event.objectId];
 			const targetObject = event.data?.targetId ? objectsById[event.data.targetId] : undefined;
 			let creep: FrameObject | undefined, target: FrameObject | undefined;
-			if (sourceObject?.type === 'creep') { creep = sourceObject; target = targetObject; }
-			else if (targetObject?.type === 'creep') { creep = targetObject; target = sourceObject; }
+			if (sourceObject && isCreepLike(sourceObject.type)) { creep = sourceObject; target = targetObject; }
+			else if (targetObject && isCreepLike(targetObject.type)) { creep = targetObject; target = sourceObject; }
 			if (!creep || !target) continue;
 			// A creep can transfer AND withdraw in the same tick (two events) — lean
 			// toward the average of every tile it exchanged with, not just the last.
