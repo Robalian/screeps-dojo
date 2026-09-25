@@ -20,6 +20,7 @@ import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import type { ModImages } from './modImages.ts';
 import { drawSpawnFlare } from './powerCreeps.ts';
 import { activeEffects, drawEffectFlares, drawEffectPips } from './powerEffects.ts';
+import type { ActiveEffect } from './powerEffects.ts';
 import type { PowerImages } from './powerImages.ts';
 import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES, isCreepLike } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
@@ -58,6 +59,22 @@ interface RenderActionLog {
 	say?: { message?: unknown; isPublic?: boolean };
 	transferEnergy?: ActionTarget;
 }
+
+interface LiveEffectTarget {
+	worldX: number;
+	worldY: number;
+	effects: ActiveEffect[];
+}
+
+// Reused across drawFrame calls: the flare pass (2e) calls activeEffects()
+// exactly once per object and records the live ones here; the pip pass (4b),
+// after the rampart overlay, reads them back instead of recomputing
+// activeEffects() (which re-scans, re-filters and re-sorts the object's raw
+// effects, and — for the index-keyed shape, Ruling F — re-allocates via
+// Object.values) a second time for the same object on the same frame. Reset
+// by truncating its length each call rather than replacing it, so a frame
+// with nothing live allocates no array here at all.
+const liveEffectTargets: LiveEffectTarget[] = [];
 
 // Draws one frame (tick) at `subFrame` (null = paused/scrub static look;
 // a number in [0,1) = animating).
@@ -287,10 +304,18 @@ export function drawFrame(
 	//     (which allocates) only for objects with a LIVE power effect. Uses
 	//     baseFrame.gameTime, like the construction-site pulse and the
 	//     inspector, so the canvas and inspector drop an effect on the same tick.
+	//     activeEffects() runs exactly once per object here; its result (and
+	//     the object's position) is kept in liveEffectTargets for the pip pass
+	//     below, rather than recomputed there.
+	liveEffectTargets.length = 0;
 	for (const object of baseObjectsInDrawOrder) {
-		if (!object.effects || activeEffects(object, baseFrame.gameTime).length === 0) continue;
+		if (!object.effects) continue;
+		const effects = activeEffects(object, baseFrame.gameTime);
+		if (effects.length === 0) continue;
 		const position = worldPosition(object.room, object.x, object.y);
-		if (position) drawEffectFlares(ctx, object, position.worldX, position.worldY, baseFrame.gameTime, subFrame);
+		if (!position) continue;
+		liveEffectTargets.push({ worldX: position.worldX, worldY: position.worldY, effects });
+		drawEffectFlares(ctx, effects, position.worldX, position.worldY, baseFrame.gameTime, subFrame);
 	}
 
 	// 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
@@ -317,11 +342,10 @@ export function drawFrame(
 
 	// 4b) active power effect corner pips: the final pass, after the rampart
 	//     overlay, so SHIELD and FORTIFY targets (ramparts and walls) don't
-	//     tint over them.
-	for (const object of baseObjectsInDrawOrder) {
-		if (!object.effects || activeEffects(object, baseFrame.gameTime).length === 0) continue;
-		const position = worldPosition(object.room, object.x, object.y);
-		if (position) drawEffectPips(ctx, object, position.worldX, position.worldY, baseFrame.gameTime, options.powerImages);
+	//     tint over them. Replays liveEffectTargets from the flare pass (2e)
+	//     above — no re-walk of baseObjectsInDrawOrder, no second activeEffects().
+	for (const target of liveEffectTargets) {
+		drawEffectPips(ctx, target.effects, target.worldX, target.worldY, options.powerImages);
 	}
 
 	// 5) bot's Game.map.visual draws: a map-scale overlay above the rooms

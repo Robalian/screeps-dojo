@@ -45,11 +45,16 @@ function flareAlpha(t: number): number {
 // over 1s, rest 2s (a 3.2s period), spinning 2π/s. Paused (subFrame === null)
 // holds a steady, legible alpha rather than whatever instant the cycle landed
 // on, so a scrubbed-to frame still shows something is active.
+//
+// Takes the already-computed `effects` (from activeEffects()) rather than the
+// object itself: the caller (drawFrame.ts) calls activeEffects() once per
+// object per frame and shares the result with drawEffectPips, instead of
+// every pass re-scanning/re-sorting/re-allocating the same object's entries.
 export function drawEffectFlares(
-	ctx: CanvasRenderingContext2D, object: FrameObject, worldX: number, worldY: number,
+	ctx: CanvasRenderingContext2D, effects: ActiveEffect[], worldX: number, worldY: number,
 	gameTime: number, subFrame: number | null,
 ): void {
-	if (activeEffects(object, gameTime).length === 0) return;
+	if (effects.length === 0) return;
 	const cx = worldX + 0.5, cy = worldY + 0.5;
 	const t = gameTime + (subFrame ?? 0);
 	const alpha = subFrame === null ? 0.25 : flareAlpha(t);
@@ -76,11 +81,14 @@ export function drawEffectFlares(
 // power is active, readable even on a paused frame (spec D7). The official
 // icons are drawn mostly in beam-red strokes, so a red-filled disc would
 // swallow them — filled dark and outlined in beam red instead.
+//
+// Takes the already-computed `effects`, same as drawEffectFlares — drawFrame
+// keeps the flare pass's activeEffects() result in a reusable buffer and
+// replays it here rather than calling activeEffects() a second time.
 export function drawEffectPips(
-	ctx: CanvasRenderingContext2D, object: FrameObject, worldX: number, worldY: number,
-	gameTime: number, images?: PowerImages,
+	ctx: CanvasRenderingContext2D, effects: ActiveEffect[], worldX: number, worldY: number,
+	images?: PowerImages,
 ): void {
-	const effects = activeEffects(object, gameTime);
 	for (let i = 0; i < effects.length; i++) {
 		const power = POWER_BY_ID[effects[i].power];
 		const px = worldX + 0.82 - i * 0.44, py = worldY + 0.18;

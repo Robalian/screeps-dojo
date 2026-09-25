@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Recording, StageLayout } from '../../api/types';
 import { drawFrame } from '../drawFrame';
+import * as powerEffects from '../powerEffects';
 import { mockCtx } from './mockCtx';
 
 describe('drawFrame spawn transition', () => {
@@ -155,5 +156,49 @@ describe('drawFrame spawn transition', () => {
     const pipTextIndex = log.findIndex((call) => call.op === 'fillText' && call.args[0] === 'OT');
     expect(rampartDrawIndex).toBeGreaterThanOrEqual(0);
     expect(pipTextIndex).toBeGreaterThan(rampartDrawIndex);
+  });
+
+  it('calls activeEffects exactly once per object with a live effect, for both the flare pass and the pip pass', () => {
+    const recording = {
+      meta: { scenario: 'power-effect-single-scan', endReason: 'running', ticks: 1 },
+      terrain: { W0N0: [] },
+      frames: [{
+        gameTime: 10,
+        flags: [],
+        objects: [
+          { _id: 'tower1', type: 'tower', room: 'W0N0', x: 10, y: 10,
+            effects: [{ effect: 3, power: 3, level: 1, endTime: 50 }] },
+          // a second live-effect object, and a couple of effect-free ones, so
+          // the count below can't pass by accident on a single-object frame
+          { _id: 'rampart1', type: 'rampart', room: 'W0N0', x: 12, y: 10, hits: 5000, hitsMax: 0,
+            effects: [{ power: 12, level: 1, endTime: 50 }] },
+          { _id: 'energy1', type: 'energy', room: 'W0N0', x: 14, y: 10 },
+        ],
+      }],
+    } as Recording;
+    const layout = {
+      rooms: ['W0N0'], offsets: { W0N0: { col: 0, row: 0 } },
+      pixelsPerRoom: 600, width: 600, height: 600,
+    } as StageLayout;
+    const sprites = { draw: () => undefined };
+    const layers = {
+      terrain: {}, structure: {}, rampart: {}, prepare: () => undefined,
+      drawSwamps: () => undefined,
+    };
+
+    const activeEffectsSpy = vi.spyOn(powerEffects, 'activeEffects');
+    try {
+      drawFrame(mockCtx().ctx, recording, 0, null, {
+        sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
+      });
+      // drawFrame.ts's flare pass (2e) is the only caller left — the pip pass
+      // (4b) reads the flare pass's own liveEffectTargets buffer instead of
+      // calling activeEffects again — so each live-effect object is scanned
+      // exactly once for the whole frame, not once per pass.
+      const idsScanned = activeEffectsSpy.mock.calls.map((call) => (call[0] as { _id: string })._id);
+      expect(idsScanned).toEqual(['tower1', 'rampart1']);
+    } finally {
+      activeEffectsSpy.mockRestore();
+    }
   });
 });
