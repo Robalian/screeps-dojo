@@ -36,4 +36,18 @@ describe('scenario power creep roster', function () {
 		assert.ok(loaded.warnings[0].startsWith('power-creeps.json: '));
 		assert.match(loaded.warnings[0], /not reachable in the real game/);
 	});
+
+	it('turns the live power-creeps list into a roster', async function () {
+		const { rosterFromLive, loadPowerModel } = require('../../src/powerCreeps');
+		const model = await loadPowerModel();
+		const roster = rosterFromLive([
+			{ _id: 'a', name: 'PC1', className: 'operator', level: 3, powers: { 1: { level: 2 }, 2: { level: 1, cooldownTime: 5 } }, room: 'E27S23' },
+			{ _id: 'b', name: 'PC2', className: 'operator', level: 0, powers: {} }
+		], 49000, model);
+		assert.deepStrictEqual(roster, { gpl: 7, powerCreeps: [
+			{ name: 'PC1', className: 'operator', powers: { GENERATE_OPS: 2, OPERATE_SPAWN: 1 } },
+			{ name: 'PC2', className: 'operator', powers: {} }
+		] });
+		assert.ok(model.validateRoster(roster).roster, 'an imported roster is always valid');
+	});
 });

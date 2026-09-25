@@ -76,13 +76,27 @@ function createClient(config) {
 		});
 	}
 
+	// Password auth: sign in over REST first so a native session token exists —
+	// the socket handshake needs it (the mod's REST-only API token fails socket
+	// auth), and so do plain REST calls like powerCreeps()/me() when nothing
+	// else has connected the socket yet. Token auth needs no signin call; the
+	// token is sent automatically. Memoized so a client only signs in once.
+	let restLoginPromise = null;
+	function restLogin() {
+		if (!restLoginPromise) {
+			restLoginPromise = (async function () {
+				if (token) return;
+				const api = await getApi();
+				await api.authSignin(email, password);
+			})();
+		}
+		return restLoginPromise;
+	}
+
 	return {
 		async connect() {
+			await restLogin();
 			const api = await getApi();
-			// Password auth: sign in first so a native session token exists for the
-			// socket handshake (the mod's REST-only API token fails socket auth).
-			// Token auth needs no signin call; the token is sent automatically.
-			if (!token) await api.authSignin(email, password);
 			await api.socket.connect();
 		},
 
@@ -114,11 +128,27 @@ function createClient(config) {
 		},
 
 		async me() {
+			await restLogin();
 			const api = await getApi();
 			const user = await api.me();
 			myId = user._id;
 			ownerCache[myId] = 'me';
 			return user;
+		},
+
+		// The account's power creeps, spawned or not (live /api/game/power-creeps/list).
+		// screeps-api 2.0.1 has no wrapper for it, so this is its raw req().
+		async powerCreeps() {
+			await restLogin();
+			const api = await getApi();
+			const result = await api.req('GET', '/api/game/power-creeps/list');
+			return (result && result.list) || [];
+		},
+
+		// Lifetime processed power (users.power): GPL = floor(sqrt(power / 1000)).
+		async gplPower() {
+			const user = await this.me();
+			return typeof user.power === 'number' ? user.power : 0;
 		},
 
 		// The SOURCE server's current tick. Every absolute clock in the object docs

@@ -235,6 +235,18 @@ describe('GET /api/scenarios', function () {
 		assert.deepStrictEqual(list.find(function (s) { return s.name === 'dotfiles'; }).files, ['scenario.js']);
 	});
 
+	it('classifies a scenario power-creeps.json as its own kind', async function () {
+		const SCENARIO = 'with-map';
+		const SCENARIO_DIR = path.join(scenariosRoot, SCENARIO);
+		fs.writeFileSync(path.join(SCENARIO_DIR, 'power-creeps.json'), '{"powerCreeps":[]}');
+		try {
+			const files = JSON.parse((await get(port, '/api/scenarios/' + SCENARIO + '/files')).body);
+			assert.strictEqual(files.find(function (f) { return f.path === 'power-creeps.json'; }).kind, 'powerCreeps');
+		} finally {
+			fs.rmSync(path.join(SCENARIO_DIR, 'power-creeps.json'), { force: true });
+		}
+	});
+
 	// Reporting an unreadable directory as "no scenarios" would send the user to
 	// copy files from examples/ when the real problem is permissions.
 	it('reports a filesystem failure as a 500, not as an empty list', async function () {

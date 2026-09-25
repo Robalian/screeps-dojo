@@ -33,4 +33,16 @@ async function loadRosterFor(scenarioDir) {
 	return { roster: parsed.roster, warnings: parsed.issues.map(i => ROSTER_FILE + ': ' + i.message) };
 }
 
-module.exports = { loadPowerModel, loadRosterFor, ROSTER_FILE };
+// The live /api/game/power-creeps/list plus users.power -> a roster. GPL uses
+// the engine's POWER_LEVEL_MULTIPLY 1000 / POWER_LEVEL_POW 2 as literals: this
+// runs without a mock server to ask.
+function rosterFromLive(list, power, model) {
+	return {
+		gpl: Math.floor(Math.sqrt((power || 0) / 1000)),
+		powerCreeps: (list || []).map(pc => ({
+			name: pc.name, className: pc.className || 'operator', powers: model.fromEnginePowers(pc.powers)
+		}))
+	};
+}
+
+module.exports = { loadPowerModel, loadRosterFor, ROSTER_FILE, rosterFromLive };

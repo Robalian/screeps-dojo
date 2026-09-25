@@ -149,12 +149,13 @@ export const api = {
     return res.json();
   },
   importRooms: (scenario: string, rooms: string[], options?: {
-    memory?: boolean; segments?: boolean; creeps?: boolean; structures?: boolean; overwrite?: boolean;
+    memory?: boolean; segments?: boolean; powerCreeps?: boolean; creeps?: boolean; structures?: boolean; overwrite?: boolean;
   }) =>
     jpost<{ importId: string }>('/api/scenarios/' + encodeURIComponent(scenario) + '/import', {
       rooms,
       memory: options?.memory === true,
       segments: options?.segments === true,
+      powerCreeps: options?.powerCreeps === true,
       creeps: options?.creeps !== false,
       structures: options?.structures !== false,
       overwrite: options?.overwrite === true

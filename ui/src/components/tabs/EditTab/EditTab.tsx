@@ -74,6 +74,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const [importStructures, setImportStructures] = useState(true);
   const [importMemory, setImportMemory] = useState(false);
   const [importSegments, setImportSegments] = useState(false);
+  const [importPowerCreeps, setImportPowerCreeps] = useState(false);
   const [overwriteMaps, setOverwriteMaps] = useState(true);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
@@ -309,7 +310,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
     try {
       const { importId } = await api.importRooms(scenario, list, {
         creeps: importCreeps, structures: importStructures,
-        memory: importMemory, segments: importSegments, overwrite: overwriteMaps
+        memory: importMemory, segments: importSegments, powerCreeps: importPowerCreeps, overwrite: overwriteMaps
       });
       const es = new EventSource(api.importStreamUrl(importId));
       es.addEventListener('log', (e) => setImportLog((l) => l.concat(JSON.parse((e as MessageEvent).data).line)));
@@ -368,6 +369,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
             <label><input type="checkbox" checked={importStructures} onChange={(e) => setImportStructures(e.target.checked)} /> My structures</label>
             <label><input type="checkbox" checked={importMemory} onChange={(e) => setImportMemory(e.target.checked)} /> Memory</label>
             <label><input type="checkbox" checked={importSegments} onChange={(e) => setImportSegments(e.target.checked)} /> Memory segments</label>
+            <label title="Your account's power creeps and GPL → power-creeps.json. Spawned ones in these rooms are placed from the map either way."><input type="checkbox" checked={importPowerCreeps} onChange={(e) => setImportPowerCreeps(e.target.checked)} /> Power creeps</label>
             <label><input type="checkbox" checked={overwriteMaps} onChange={(e) => setOverwriteMaps(e.target.checked)} /> Overwrite existing maps</label>
           </div>
           <button className={styles.importBtn} disabled={importing} onClick={runImport}>{importing ? 'importing…' : 'Import from live server'}</button>

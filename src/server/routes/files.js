@@ -10,6 +10,8 @@ function kindOf(name) {
 	// settings.json opens in its own form editor, the way map*.json opens in the
 	// map editor — so it has to be classified before the generic .json branch.
 	if (name === 'settings.json') return 'settings';
+	// Opens in the power-creep roster editor.
+	if (name === 'power-creeps.json') return 'powerCreeps';
 	if (/map.*\.json$/i.test(name)) return 'map';
 	if (name.endsWith('.js')) return 'js';
 	if (name.endsWith('.json')) return 'json';
