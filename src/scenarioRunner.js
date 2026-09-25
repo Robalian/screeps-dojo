@@ -23,6 +23,7 @@ const path = require('path');
 const assert = require('assert');
 const DojoWorld = require('./dojoWorld');
 const harnessWarnings = require('./harnessWarnings');
+const powerCreeps = require('./powerCreeps');
 const botModules = require('./botModules');
 const botProfiles = require('./botProfiles');
 const scenarioSettings = require('./scenarioSettings');
@@ -172,6 +173,7 @@ async function runScenario(scenarioDir, options) {
 	const recordingEnabled = options.record === true || scenario.record === true || process.env.DOJO_RECORD === '1';
 	let recorder = null;
 	let ticks = 0;
+	let powerCreepSummary = null;
 
 	function recordingMeta(endReason, error, test) {
 		const meta = {
@@ -185,7 +187,8 @@ async function runScenario(scenarioDir, options) {
 			// no sense read as vanilla
 			mods: modIds,
 			endReason: endReason,
-			ticks: ticks
+			ticks: ticks,
+			powerCreeps: powerCreepSummary || undefined
 		};
 		if (error) meta.error = String(error);
 		if (test) meta.test = test;
@@ -243,6 +246,22 @@ async function runScenario(scenarioDir, options) {
 	try {
 		harnessWarnings.reset();   // a fresh run starts with a clean slate
 		for (const warning of pendingWarnings) harnessWarnings.warnOnce(warning, warning);
+
+		// The scenario's own power creeps (power-creeps.json), if it has any.
+		// addMainBot seeds them unspawned; a broken file fails the run here with
+		// the field named, not as an engine stack trace.
+		const loadedRoster = await powerCreeps.loadRosterFor(scenarioDir);
+		for (const warning of loadedRoster.warnings) harnessWarnings.warnOnce(warning, warning);
+		world.powerCreepRoster = loadedRoster.roster;
+		powerCreepSummary = loadedRoster.roster && {
+			gpl: loadedRoster.roster.gpl,
+			creeps: loadedRoster.roster.powerCreeps.map(pc => ({
+				name: pc.name,
+				level: Object.values(pc.powers).reduce((sum, level) => sum + level, 0),
+				powers: pc.powers
+			}))
+		};
+
 		await world.reset();
 		// @screeps/common CATCHES and logs mod load failures, so a mod that threw
 		// on load leaves a server that looks healthy and silently runs vanilla.
