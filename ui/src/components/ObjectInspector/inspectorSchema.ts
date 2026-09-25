@@ -1,4 +1,5 @@
 import type { FrameObject } from '../../api/types';
+import { tombstoneTitle } from './inspectorPower';
 
 // A single "nice stat" for a structure type: a label, the raw object fields it
 // consumes (so the generic catch-all can exclude them and never double-show),
@@ -92,7 +93,23 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
       { label: 'reserved by', keys: ['reservation'], value: (o) => {
         const r = o.reservation as { username?: string } | undefined; return r ? (r.username || 'reserved') : null;
       } },
+      { label: 'powers enabled', keys: ['isPowerEnabled'], value: (o) => (o.isPowerEnabled === true ? 'yes' : null) },
     ],
+  },
+  powerCreep: {
+    showStore: false,
+    stats: [
+      { label: 'class', keys: ['className', 'level'], value: (o) => (o.className || 'operator') + ' · level ' + (num(o, 'level') ?? 0) },
+      { label: 'ops', keys: ['store', 'storeCapacity'], value: (o) => {
+        const store = o.store as Record<string, number> | undefined;
+        const ops = store && typeof store.ops === 'number' ? store.ops : 0;
+        const cap = num(o, 'storeCapacity');
+        return cap ? ops.toLocaleString('en-US') + ' / ' + cap.toLocaleString('en-US') : String(ops);
+      } },
+    ],
+  },
+  tombstone: {
+    stats: [{ label: 'was', keys: ['powerCreepName'], value: (o) => tombstoneTitle(o) }],
   },
   // A bank is two numbers: how much power is in it, and how long you have. The
   // deadline is `decayTime` here, not the `nextDecayTime` most decaying
