@@ -955,7 +955,8 @@ class DojoWorld {
 		}
 		for (const map of withController) {
 			const owns = (map.structures || []).some(function (s) { return s.owner === label; })
-				|| (map.creeps || []).some(function (c) { return c.owner === label; });
+				|| (map.creeps || []).some(function (c) { return c.owner === label; })
+				|| (map.powerCreeps || []).some(function (pc) { return pc.owner === label; });
 			if (owns) return { room: map.room, x: map.controller.x, y: map.controller.y };
 		}
 		return null;

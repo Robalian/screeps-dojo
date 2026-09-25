@@ -253,12 +253,25 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
     try {
       const { content: c } = await api.file(scenario, path);
-      if (!files.some((f) => f.path === path)) refreshFiles();
+      // A file just created outside this component (e.g. the scenario ⚙'s
+      // Power creeps Create link) isn't in `files` yet, so its kind is
+      // unknown — await the refresh before load() so it never opens in the
+      // plain code editor for a render or two before flipping to its form.
+      if (!files.some((f) => f.path === path)) await refreshFiles();
       load(path, c); setStatus('');
     } catch (e) { window.alert('Could not open ' + path + ': ' + (e as Error).message); }
   };
   const save = async () => {
     if (!selected) return;
+    // Belt-and-braces beyond the Save button's disabled state: Ctrl+S and the
+    // unsaved-changes dialog's Save both call save() directly, bypassing that
+    // disabled attribute. Refuse here too, so an invalid roster is never
+    // written no matter how save() is reached.
+    if (isPowerCreeps && rosterHasErrors(current)) {
+      const reason = 'Fix the power creep errors before saving';
+      setStatus(reason);
+      throw new Error(reason);
+    }
     await api.saveFile(scenario, selected, current);
     setSavedContent(current); setStatus('saved ✓');
     setTimeout(() => setStatus(''), 1500);
@@ -295,7 +308,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   // Ctrl/Cmd-S to save
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty) save(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty) save().catch(() => {}); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);

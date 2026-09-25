@@ -58,6 +58,7 @@ interface RenderActionLog {
 	harvest?: ActionTarget;
 	say?: { message?: unknown; isPublic?: boolean };
 	transferEnergy?: ActionTarget;
+	spawned?: boolean;
 }
 
 interface LiveEffectTarget {
@@ -201,7 +202,11 @@ export function drawFrame(
 			// A power creep's first appearance is its spawn flare: the engine's
 			// `spawned` flag sits on this next frame's actionLog, but the creep
 			// itself isn't in baseFrame yet for drawActionEffects to see it there.
-			if (nextObject.type === 'powerCreep') {
+			// Require that flag, not just "new this frame" — a power creep can
+			// also newly appear by walking in from an unrecorded room, or by
+			// being placed mid-run, neither of which is a spawn.
+			const nextActionLog = nextObject.actionLog as RenderActionLog | undefined;
+			if (nextObject.type === 'powerCreep' && nextActionLog?.spawned) {
 				drawSpawnFlare(ctx, position.worldX + 0.5, position.worldY + 0.5, subFrame as number);
 			}
 		}

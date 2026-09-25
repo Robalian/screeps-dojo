@@ -253,8 +253,8 @@ roster, and no opt-in: the file's presence is what makes them available.
 await world.seedPowerCreeps({ gpl: 8, powerCreeps: [{ name: 'PC1', powers: { GENERATE_OPS: 2 } }] });
 await world.addPowerCreep({ room: 'W1N1', x: 25, y: 25, name: 'PC1' });      // spawns a roster creep in place
 await world.addPowerCreep({                                                  // or a fully specified one
-  room: 'W1N1', x: 10, y: 10, name: 'Enemy1', owner: 'invader',
-  powers: { GENERATE_OPS: 1 }, store: { ops: 50 }
+  room: 'W1N1', x: 10, y: 10, name: 'Enemy1', owner: 'enemy',                // a player label — NPCs never own power creeps
+  powers: { GENERATE_OPS: 1 }, store: { ops: 50 }                            // (bind 'enemy' in settings.json's `bots`, or use 'me')
 });
 await world.setGpl(12);                     // raises GPL without adding creeps
 await world.resetPowerCreepCooldown('PC1'); // clears the 8h wall-clock respawn cooldown after a death

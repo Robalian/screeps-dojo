@@ -12,6 +12,10 @@ describe('power rows in the inspector schema', () => {
     expect(value('powerCreep', 'ops', { store: { ops: 40 }, storeCapacity: 1300 })).toBe('40 / 1,300');
   });
 
+  it('never hides a power creep\'s store — energy, power, boosts, not just ops', () => {
+    expect(TYPE_SCHEMA.powerCreep.showStore).not.toBe(false);
+  });
+
   it('marks a power-enabled controller, and stays silent otherwise', () => {
     expect(value('controller', 'powers enabled', { isPowerEnabled: true })).toBe('yes');
     // null hides the row: "no" on every controller in every replay is noise

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Recording, StageLayout } from '../../api/types';
 import { drawFrame } from '../drawFrame';
 import * as powerEffects from '../powerEffects';
+import * as powerCreepsModule from '../powerCreeps';
 import { mockCtx } from './mockCtx';
 
 describe('drawFrame spawn transition', () => {
@@ -120,6 +121,45 @@ describe('drawFrame spawn transition', () => {
     expect(draws).toHaveLength(1);
     expect(draws[0].object._id).toBe('pc');
     expect(draws[0].object.type).toBe('powerCreep');
+  });
+
+  it('flares a power creep\'s fade-in only when it actually spawned, not merely new this frame', () => {
+    const layout = {
+      rooms: ['W0N0'], offsets: { W0N0: { col: 0, row: 0 } },
+      pixelsPerRoom: 600, width: 600, height: 600,
+    } as StageLayout;
+    const sprites = { draw: () => undefined };
+    const layers = {
+      terrain: {}, structure: {}, rampart: null, prepare: () => undefined,
+      drawSwamps: () => undefined,
+    };
+    const makeRecording = (actionLog: Record<string, unknown>) => ({
+      meta: { scenario: 'power-creep-fade-in', endReason: 'running', ticks: 2 },
+      terrain: { W0N0: [] },
+      frames: [
+        { gameTime: 1, flags: [], objects: [] },
+        { gameTime: 2, flags: [], objects: [
+          { _id: 'pc', type: 'powerCreep', room: 'W0N0', x: 10, y: 10, level: 1, className: 'operator', actionLog },
+        ] },
+      ],
+    } as Recording);
+
+    const flareSpy = vi.spyOn(powerCreepsModule, 'drawSpawnFlare').mockImplementation(() => undefined);
+
+    // Newly present next frame, but no `spawned` flag — e.g. walking in from
+    // an unrecorded room, or placed mid-run. Must NOT flare.
+    drawFrame(mockCtx().ctx, makeRecording({}), 0, 0.5, {
+      sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
+    });
+    expect(flareSpy).not.toHaveBeenCalled();
+
+    // Newly present next frame WITH the engine's spawned flag. Must flare.
+    drawFrame(mockCtx().ctx, makeRecording({ spawned: true }), 0, 0.5, {
+      sprites: sprites as never, layers: layers as never, layout, showVisuals: false,
+    });
+    expect(flareSpy).toHaveBeenCalled();
+
+    flareSpy.mockRestore();
   });
 
   it('draws the active-effect pip after the rampart overlay, for a tower under OPERATE_TOWER', () => {

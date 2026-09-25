@@ -3,7 +3,7 @@
 // through powerRoster.ts's setPowerLevel/addPowerCreep/etc, which the
 // component calls directly.
 import { POWERS, powerLevelValue } from '../../game/powerInfo';
-import { creepLevel, nextLevelBlocker, parseRosterDraft, validateRoster, type PowerCreepRoster, type RosterPowerCreep } from '../../game/powerRoster';
+import { creepLevel, nextLevelBlocker, parseRoster, parseRosterDraft, type PowerCreepRoster, type RosterPowerCreep } from '../../game/powerRoster';
 
 export interface PowerRow {
   key: string; label: string; icon: string; short: string;
@@ -51,9 +51,23 @@ export function rosterSummary(text: string): string {
 }
 
 // Save is refused for fatal damage or any validation error; warnings are fine.
+// This must use the runner's own parseRoster (not the lenient parseRosterDraft,
+// which silently drops malformed fields like gpl: null/"8" or a string power
+// level) or Save would enable on a draft the runner then rejects.
 export function rosterHasErrors(text: string): boolean {
-  const { draft } = parseRosterDraft(text);
-  return !draft || validateRoster(draft).issues.some((issue) => issue.severity === 'error');
+  return parseRoster(text).issues.some((issue) => issue.severity === 'error');
+}
+
+// GPL input parsing: '' means "auto" (gpl: undefined). Any other text that
+// doesn't parse to a finite number (a bare '-' mid-typing, or other stray
+// input) must not reach the draft at all — Number(...) on it is NaN, and
+// JSON.stringify(NaN) writes "gpl":null, which the runner then rejects. null
+// here means "ignore this change, leave the field text alone" — it is not the
+// same as { gpl: undefined }, which means "set to auto".
+export function parseGplInput(value: string): { gpl: number | undefined } | null {
+  if (value === '') return { gpl: undefined };
+  const n = Number(value);
+  return Number.isFinite(n) ? { gpl: n } : null;
 }
 
 export function summaryLine(pc: RosterPowerCreep): string {

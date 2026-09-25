@@ -97,7 +97,10 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
     ],
   },
   powerCreep: {
-    showStore: false,
+    // showStore intentionally omitted: unlike controller/source/etc, a power
+    // creep's store is real inventory (energy, power, boosts…) beyond ops —
+    // StoreList must show all of it. The row below is a summary, not a
+    // replacement.
     stats: [
       { label: 'class', keys: ['className', 'level'], value: (o) => (o.className || 'operator') + ' · level ' + (num(o, 'level') ?? 0) },
       { label: 'ops', keys: ['store', 'storeCapacity'], value: (o) => {

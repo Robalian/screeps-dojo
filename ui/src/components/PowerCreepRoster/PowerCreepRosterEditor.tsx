@@ -7,7 +7,7 @@ import {
   renamePowerCreep, requiredGpl, serializeRoster, setPowerLevel, validateRoster,
   type PowerCreepRoster, type RosterPowerCreep,
 } from '../../game/powerRoster';
-import { rosterView, summaryLine } from './rosterView';
+import { parseGplInput, rosterView, summaryLine } from './rosterView';
 import settingsStyles from '../Settings/Settings.module.css';
 import styles from './PowerCreepRoster.module.css';
 
@@ -101,7 +101,10 @@ export function PowerCreepRosterEditor({ scenario, text, onChange }: Props) {
             type="number"
             value={rosterValue.gpl === undefined ? '' : rosterValue.gpl}
             placeholder="auto"
-            onChange={(e) => update({ ...rosterValue, gpl: e.target.value === '' ? undefined : Number(e.target.value) })}
+            onChange={(e) => {
+              const parsed = parseGplInput(e.target.value);
+              if (parsed) update({ ...rosterValue, ...parsed });
+            }}
           />
           <span className={styles.gplHint}>needs &ge; {requiredGpl(rosterValue)}</span>
           <span style={{ flex: 1 }} />

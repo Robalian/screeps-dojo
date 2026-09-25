@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rosterView, summaryLine, rosterHasErrors, rosterSummary } from '../rosterView';
+import { rosterView, summaryLine, rosterHasErrors, rosterSummary, parseGplInput } from '../rosterView';
 
 const roster = { powerCreeps: [{ name: 'PC1', className: 'operator', powers: { GENERATE_OPS: 1, OPERATE_SPAWN: 1 } }] };
 
@@ -27,6 +27,23 @@ describe('rosterView', () => {
     expect(rosterHasErrors('{')).toBe(true);
     // warnings alone (unreachable order) never block saving
     expect(rosterHasErrors('{"powerCreeps":[{"name":"R","powers":{"REGEN_SOURCE":1}}]}')).toBe(false);
+  });
+
+  it('catches malformed fields that the lenient draft parser silently drops', () => {
+    // gpl: null — parseRosterDraft drops it (typeof check), but the runner's
+    // validateRoster flags it as an error.
+    expect(rosterHasErrors('{"gpl":null,"powerCreeps":[{"name":"A","powers":{}}]}')).toBe(true);
+    // gpl as a string — same story.
+    expect(rosterHasErrors('{"gpl":"8","powerCreeps":[{"name":"A","powers":{}}]}')).toBe(true);
+    // a power level as a string instead of a number.
+    expect(rosterHasErrors('{"powerCreeps":[{"name":"A","powers":{"GENERATE_OPS":"2"}}]}')).toBe(true);
+  });
+
+  it('parseGplInput never produces NaN', () => {
+    expect(parseGplInput('')).toEqual({ gpl: undefined });
+    expect(parseGplInput('7')).toEqual({ gpl: 7 });
+    expect(parseGplInput('-')).toBe(null);
+    expect(parseGplInput('abc')).toBe(null);
   });
 
   it('summarises a roster file for the scenario settings row', () => {

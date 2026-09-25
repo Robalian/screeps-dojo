@@ -58,7 +58,7 @@ module.exports.loop = function () {
 					shieldedPC1 = true;
 				}
 			}
-			report.pc1 = { x: pc1.x, y: pc1.y, ops: (pc1.store && pc1.store[RESOURCE_OPS]) || 0 };
+			report.pc1 = { x: pc1.pos.x, y: pc1.pos.y, ops: (pc1.store && pc1.store[RESOURCE_OPS]) || 0 };
 		}
 	}
 

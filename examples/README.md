@@ -102,5 +102,22 @@ run logs every score change, and you can see the rate step from `+1` to `+2` as
 `continuousWork` passes 9 — that is Season 5's
 `1 + floor(log10(1 + continuousWork))`.
 
+## `power-creeps` — power creeps and power-creeps.json
+
+Two power creeps, two ways to get one onto the map: **PC1** starts unspawned
+in `power-creeps.json`, spawns itself at the power spawn, walks to the
+controller and enables the room; **Placed** is already spawned in `map.json`,
+standing in range of the spawn and tower, and runs `PWR_OPERATE_TOWER` /
+`PWR_OPERATE_SPAWN` from where it stands.
+
+    cp -r examples/power-creeps scenarios/power-creeps
+    npm test -- power-creeps record
+
+`power-creeps.json` is the account-wide roster (`gpl` plus each creep's name,
+class and learned powers) — see **Power creeps** in the main `README.md` for
+the file format and the Edit tab's Form/JSON editor. The replay shows the
+operator art and red tint, a spawn flare, a beam and icon pop on `usePower`,
+and a pulsing flare on anything carrying an active effect.
+
 See the main `README.md` ("Writing a scenario") for the full field reference,
 multi-room maps, recording, and importing rooms from a live server.
