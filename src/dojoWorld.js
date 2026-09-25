@@ -10,6 +10,7 @@ const warnings = require('./harnessWarnings');
 const botModules = require('./botModules');
 const modRegistry = require('./mods');
 const { planStrongholdRepair } = require('./import/strongholdRepair');
+const { loadPowerModel } = require('./powerCreeps');
 
 // Not a game constant: the engine hardcodes 100 per part when it builds a body
 // (processor/intents/spawns/create-creep.js). Everything else here comes from
@@ -193,6 +194,25 @@ function usersById(docs) {
  */
 
 /**
+ * @typedef {object} PowerCreepOptions
+ * @property {string} room
+ * @property {number} x
+ * @property {number} y
+ * @property {string} name        must match a roster creep of the same owner, or carry `powers`
+ * @property {string} [owner]     'me' (default), 'invader', or a player label
+ * @property {string} [user]      raw user id (wins over owner)
+ * @property {string} [className] 'operator'
+ * @property {Record<string, number>} [powers] { OPERATE_SPAWN: 2, ... } — overrides the roster
+ * @property {number} [ticksToLive] default POWER_CREEP_LIFE_TIME (5000)
+ * @property {number} [ageTime]   absolute death tick (wins over ticksToLive)
+ * @property {number} [hits]
+ * @property {Record<string, number>} [store] e.g. { ops: 100 }
+ * @property {Record<string, number>} [cooldowns] ticks until each power is ready, by name
+ * @property {string} [id]
+ * @property {boolean} [activate]
+ */
+
+/**
  * @typedef {object} SpawnOptions
  * @property {string} room
  * @property {number} x
@@ -235,6 +255,7 @@ function usersById(docs) {
  * @property {number} gameTime
  * @property {Record<string, CreepSnapshot>} creeps the main bot's creeps, by name
  * @property {Record<string, CreepSnapshot>} hostileCreeps everyone else's, by name
+ * @property {Record<string, CreepSnapshot>} powerCreeps the main bot's power creeps, by name
  * @property {Record<string, FlagSnapshot>} flags
  * @property {object[]} objects raw rooms.objects docs
  * @property {Record<string, { username: string, score: number }>} users by user id
@@ -259,6 +280,12 @@ class DojoWorld {
 		// map.*.json without every scenario.js repeating fs+path boilerplate.
 		// Null when a world is built directly (tests), which those two report.
 		this.scenarioDir = options.scenarioDir || null;
+		// Set by the runner before setup() from the scenario's own
+		// power-creeps.json, if any; addMainBot seeds it (see seedPowerCreeps).
+		this.powerCreepRoster = null;
+		// user id -> the GPL a roster or setGpl() asked for; refreshUserPower
+		// never seeds less than the creeps need.
+		this.requestedGpl = {};
 	}
 
 	get world() {
@@ -483,6 +510,10 @@ class DojoWorld {
 				this._botErrors.push(s);
 			});
 		} catch (e) { /* pubsub shape differs — non-fatal, just no error capture */ }
+		// Power creeps belong to the account, so they are seeded with the user —
+		// before placeMapObjects, so a map creep with the same name reuses the
+		// account doc (one _id, as the engine's spawnPowerCreep leaves it).
+		if (this.powerCreepRoster) await this.seedPowerCreeps(this.powerCreepRoster);
 		// screeps-server-mockup sets safeMode: 20000 on the controller when addBot
 		// runs, which prevents invader attacks for 20000 ticks — clear it so the
 		// sim reflects real-world conditions (spec §3: harness must not mask bugs).
@@ -714,6 +745,9 @@ class DojoWorld {
 					activate: false
 				}));
 			}
+			for (const powerCreep of map.powerCreeps || []) {
+				await this.addPowerCreep(Object.assign({ owner: 'me' }, powerCreep, { room: map.room, activate: false }));
+			}
 			await this.repairStronghold(map.room);
 			await this.activateRoom(map.room);
 		}
@@ -894,6 +928,7 @@ class DojoWorld {
 		for (const map of maps || []) {
 			for (const structure of map.structures || []) consider(structure.owner);
 			for (const creep of map.creeps || []) consider(creep.owner);
+			for (const powerCreep of map.powerCreeps || []) consider(powerCreep.owner);
 			if (map.controller) consider(map.controller.owner);
 		}
 		return Array.from(labels).sort();
@@ -979,6 +1014,10 @@ class DojoWorld {
 			const set = claimed
 				? { user: this.resolveOwner(c.owner), level: c.level || 1, progress: 0 }
 				: { user: null, level: 0, progress: 0, reservation: null, downgradeTime: null };
+			// enableRoom's flag (engine enableRoom.js). Powers are refused in a
+			// room whose controller lacks it, so an imported powered room must
+			// keep it — and an unpowered one must not inherit a stale true.
+			set.isPowerEnabled = c.isPowerEnabled === true;
 			await this.updateObject({ room: map.room, type: 'controller' }, set);
 		}
 	}
@@ -1029,6 +1068,9 @@ class DojoWorld {
 		// generic path is just a spelling of addCreep — same code, same doc.
 		if (type === 'creep') {
 			return this.addCreep(Object.assign(doc, { room: room, x: x, y: y, activate: activate }));
+		}
+		if (type === 'powerCreep') {
+			return this.addPowerCreep(Object.assign(doc, { room: room, x: x, y: y, activate: activate }));
 		}
 		delete doc.type;
 		delete doc.x;
@@ -1335,6 +1377,171 @@ class DojoWorld {
 		return (await this.world.gameTime) + ticksToLive;
 	}
 
+	// --- power creeps ----------------------------------------------------
+
+	// The users.power_creeps doc the engine's createPowerCreep + upgrade
+	// intents would leave for `powerCreep` ({ name, className, powers: {KEY: level} }).
+	// hitsMax/storeCapacity have no named engine constant: createPowerCreep.js
+	// starts at 1000/100 and upgradePowerCreep.js adds 1000/100 per level.
+	powerCreepAccountDoc(userId, powerCreep, model) {
+		const level = model.creepLevel(powerCreep);
+		return {
+			name: powerCreep.name, className: powerCreep.className || 'operator', user: String(userId),
+			level: level, hitsMax: 1000 * (level + 1), store: {}, storeCapacity: 100 * (level + 1),
+			spawnCooldownTime: 0, powers: model.toEnginePowers(powerCreep.powers)
+		};
+	}
+
+	/**
+	 * Seeds a roster as UNSPAWNED account power creeps (spawnCooldownTime 0:
+	 * ready now), exactly as live after createPowerCreep + upgrades. The bot sees
+	 * them in Game.powerCreeps and spawns them itself. Re-seeding a name updates
+	 * that doc in place. Also raises the user's power so Game.gpl covers them.
+	 * @param {{ gpl?: number, powerCreeps: Array<{ name: string, className?: string, powers: Record<string, number> }> }} roster
+	 * @param {string} [owner] 'me' (default) or a player label
+	 * @returns {Promise<Record<string, string>>} name -> power creep _id
+	 */
+	async seedPowerCreeps(roster, owner) {
+		const userId = owner === undefined ? this.botUserId : this.resolveOwner(owner);
+		if (!userId) throw new Error('seedPowerCreeps: add the main bot first');
+		const model = await loadPowerModel();
+		const checked = model.validateRoster(roster);
+		if (!checked.roster) {
+			throw new Error('seedPowerCreeps: ' + checked.issues.filter(i => i.severity === 'error')
+				.map(i => (i.path ? i.path + ': ' : '') + i.message).join('; '));
+		}
+		const { db } = await this.world.load();
+		const ids = {};
+		for (const powerCreep of checked.roster.powerCreeps) {
+			const doc = this.powerCreepAccountDoc(userId, powerCreep, model);
+			const existing = await db['users.power_creeps'].findOne({ user: String(userId), name: powerCreep.name });
+			if (existing) {
+				await db['users.power_creeps'].update({ _id: existing._id }, { $set: doc });
+				ids[powerCreep.name] = existing._id;
+			} else {
+				const inserted = await db['users.power_creeps'].insert(doc);
+				ids[powerCreep.name] = inserted._id;
+			}
+		}
+		if (checked.roster.gpl !== undefined) this.requestedGpl[userId] = checked.roster.gpl;
+		await this.refreshUserPower(userId);
+		return ids;
+	}
+
+	/**
+	 * Places an already-SPAWNED power creep. A creep named in the owner's
+	 * roster reuses that account doc (same _id, so Game.powerCreeps[name] is the
+	 * live creep); otherwise `powers` (and optionally className) are required
+	 * and an account doc is created for it.
+	 * @param {PowerCreepOptions} options
+	 * @returns {Promise<string>} the power creep _id
+	 */
+	async addPowerCreep(options) {
+		if (!options.name) throw new Error('addPowerCreep: name is required');
+		const owner = options.user !== undefined ? options.user : options.owner;
+		const userId = owner === undefined ? this.botUserId : this.resolveOwner(owner);
+		if (!userId) throw new Error('addPowerCreep: no user (add the main bot first or pass owner)');
+		const model = await loadPowerModel();
+		const { db } = await this.world.load();
+		const account = await db['users.power_creeps'].findOne({ user: String(userId), name: options.name });
+		// One live body per account creep: a second placement would insert a
+		// duplicate _id into rooms.objects.
+		if (account && await db['rooms.objects'].findOne({ _id: account._id })) {
+			throw new Error('addPowerCreep: ' + options.name + ' is already placed');
+		}
+		let powerCreep;
+		if (options.powers) {
+			powerCreep = { name: options.name, className: options.className || (account && account.className) || 'operator', powers: options.powers };
+		} else if (account) {
+			powerCreep = { name: account.name, className: account.className, powers: model.fromEnginePowers(account.powers) };
+		} else {
+			throw new Error('addPowerCreep: ' + options.name + ' has no powers and is not in the power creep roster');
+		}
+		const checked = model.validateRoster({ powerCreeps: [powerCreep] });
+		if (!checked.roster) {
+			throw new Error('addPowerCreep: ' + options.name + ': ' + checked.issues.filter(i => i.severity === 'error')
+				.map(i => i.message).join('; '));
+		}
+		const accountDoc = this.powerCreepAccountDoc(userId, checked.roster.powerCreeps[0], model);
+		// Alive: spawnPowerCreep.js clears the cooldown and stamps the shard
+		// (always '' on the mockup — see driver getInterRoom).
+		accountDoc.spawnCooldownTime = null;
+		accountDoc.shard = '';
+		let id;
+		if (account) {
+			await db['users.power_creeps'].update({ _id: account._id }, { $set: accountDoc });
+			id = account._id;
+		} else {
+			if (options.id !== undefined) accountDoc._id = options.id;
+			id = (await db['users.power_creeps'].insert(accountDoc))._id;
+		}
+		const gameTime = await this.world.gameTime;
+		const powers = {};
+		for (const powerId of Object.keys(accountDoc.powers)) {
+			powers[powerId] = { level: accountDoc.powers[powerId].level };
+		}
+		// cooldowns: { OPERATE_SPAWN: 120 } -> powers[2].cooldownTime = now + 120
+		for (const key of Object.keys(options.cooldowns || {})) {
+			const power = model.POWER_BY_KEY[key];
+			if (power && powers[power.id]) powers[power.id].cooldownTime = gameTime + options.cooldowns[key];
+		}
+		const ticksToLive = options.ticksToLive !== undefined ? options.ticksToLive : this.engineConstant('POWER_CREEP_LIFE_TIME');
+		const roomDoc = Object.assign({}, accountDoc, {
+			_id: id, powers: powers,
+			hits: options.hits !== undefined ? options.hits : accountDoc.hitsMax,
+			store: options.store || {},
+			ageTime: options.ageTime !== undefined ? options.ageTime : gameTime + ticksToLive,
+			// false like addCreep (the engine's own spawn sets true); a scenario
+			// that wants attack notifications passes it through `options`.
+			actionLog: {}, notifyWhenAttacked: options.notifyWhenAttacked === true
+		});
+		await this.world.addRoomObjectUnchecked(options.room, 'powerCreep', options.x, options.y, roomDoc);
+		if (options.activate !== false) await this.activateRoom(options.room);
+		await this.refreshUserPower(userId);
+		return id;
+	}
+
+	/**
+	 * Sets the account's Global Power Level. Never seeds less than its power
+	 * creeps need (1 per creep + 1 per level), since the engine would refuse
+	 * nothing at runtime but Game.gpl would then lie to the bot.
+	 * @param {number} level
+	 * @param {string} [owner]
+	 */
+	async setGpl(level, owner) {
+		const userId = owner === undefined ? this.botUserId : this.resolveOwner(owner);
+		if (!userId) throw new Error('setGpl: add the main bot first');
+		this.requestedGpl[userId] = level;
+		await this.refreshUserPower(userId);
+	}
+
+	/**
+	 * A power creep that dies gets a WALL-CLOCK 8h respawn cooldown
+	 * (_diePowerCreep.js), which a scenario can never wait out. This makes it
+	 * spawnable again, as if the cooldown had expired.
+	 * @param {string} name
+	 * @param {string} [owner]
+	 */
+	async resetPowerCreepCooldown(name, owner) {
+		const userId = owner === undefined ? this.botUserId : this.resolveOwner(owner);
+		const { db } = await this.world.load();
+		const doc = await db['users.power_creeps'].findOne({ user: String(userId), name: name });
+		if (!doc) throw new Error('resetPowerCreepCooldown: no power creep "' + name + '"');
+		if (doc.spawnCooldownTime === null) return; // alive
+		await db['users.power_creeps'].update({ _id: doc._id }, { $set: { spawnCooldownTime: 0 } });
+	}
+
+	// users.power drives Game.gpl: level = floor((power / POWER_LEVEL_MULTIPLY) ^ (1 / POWER_LEVEL_POW)).
+	async refreshUserPower(userId) {
+		const { db } = await this.world.load();
+		const docs = await db['users.power_creeps'].find({ user: String(userId) });
+		let needed = 0;
+		for (const doc of docs) needed += 1 + (doc.level || 0);
+		const gpl = Math.max(needed, this.requestedGpl[userId] || 0);
+		const power = this.engineConstant('POWER_LEVEL_MULTIPLY') * Math.pow(gpl, this.engineConstant('POWER_LEVEL_POW'));
+		await db.users.update({ _id: userId }, { $set: { power: power } });
+	}
+
 	// Wakes a room for the next tick. ACTIVE_ROOMS is the engine's per-tick
 	// work list: a dormant room (or one no player intent has ever touched)
 	// ignores whatever we drop into it until something re-activates it, which
@@ -1521,13 +1728,24 @@ class DojoWorld {
 		const flagDocs = await db['rooms.flags'].find({});
 
 		const state = {
-			gameTime: gameTime, creeps: {}, hostileCreeps: {}, flags: {}, objects: objects,
+			gameTime: gameTime, creeps: {}, hostileCreeps: {}, powerCreeps: {}, flags: {}, objects: objects,
 			// Score is a USER field, not a room object: Season 5 reactors pay the
 			// reactor's owner (bulkUsers.inc(user, 'score')), so until() and
 			// expect() can only see scoring through here.
 			users: await this.readUsers()
 		};
 		for (const object of objects) {
+			if (object.type === 'powerCreep') {
+				// The bot's own only, same projection as creeps — a scenario reads
+				// hostile power creeps off `objects` directly, like hostile flags.
+				if (object.user === this.botUserId) {
+					state.powerCreeps[object.name] = {
+						name: object.name, room: object.room, x: object.x, y: object.y,
+						hits: object.hits, hitsMax: object.hitsMax, store: object.store, user: object.user
+					};
+				}
+				continue;
+			}
 			if (object.type !== 'creep') continue;
 			const creep = {
 				name: object.name, room: object.room, x: object.x, y: object.y,
