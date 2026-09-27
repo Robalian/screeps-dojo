@@ -218,6 +218,68 @@ An unknown or unmounted profile fails the run immediately, naming the profiles
 that are registered — never halfway through with a confusing missing-module
 error.
 
+## Power creeps
+
+A scenario's power creeps are its own `scenarios/<name>/power-creeps.json` — there is no global
+roster, and no opt-in: the file's presence is what makes them available.
+
+```json
+{
+  "gpl": 12,
+  "powerCreeps": [
+    { "name": "PC1", "className": "operator", "powers": { "GENERATE_OPS": 3, "OPERATE_EXTENSION": 2, "OPERATE_SPAWN": 2 } }
+  ]
+}
+```
+
+- `className` defaults to `operator` (the only class the engine has). `powers` are `PWR_` names
+  without the prefix, levels 1..5; the creep's level is the sum of them, the same rule the engine
+  uses. `gpl` is optional — Dojo seeds at least enough for every creep (1 per creep + 1 per level)
+  and warns if you asked for less.
+- Roster creeps are seeded **unspawned**: the bot sees them in `Game.powerCreeps` and has to spawn
+  them itself, exactly as live.
+- Edit the file through the scenario's ⚙ (a **Power creeps** row — a one-line summary with an
+  **Edit** link, or "No power creeps in this scenario" with a **Create** link) or the Edit tab's own
+  Form/JSON toggle, the same way `settings.json` opens. The form's **Import from server** button
+  loads your account's live roster as an unsaved draft, from the scenario's server profile.
+- A map's own `powerCreeps: [...]` places already-**spawned** power creeps, the same way
+  `world.addPowerCreep` does below. A name that matches a roster entry reuses that account doc, so
+  `Game.powerCreeps` shows the live creep; one with no roster entry needs its own
+  `className`/`powers` inline, which is what an import produces. The map import dialog's **Power
+  creeps** checkbox (`--power-creeps` on the CLI) writes the live roster to `power-creeps.json`;
+  spawned power creeps in the imported rooms come across through the map either way.
+
+```js
+await world.seedPowerCreeps({ gpl: 8, powerCreeps: [{ name: 'PC1', powers: { GENERATE_OPS: 2 } }] });
+await world.addPowerCreep({ room: 'W1N1', x: 25, y: 25, name: 'PC1' });      // spawns a roster creep in place
+await world.addPowerCreep({                                                  // or a fully specified one
+  room: 'W1N1', x: 10, y: 10, name: 'Enemy1', owner: 'enemy',                // a player label — NPCs never own power creeps
+  powers: { GENERATE_OPS: 1 }, store: { ops: 50 }                            // (bind 'enemy' in settings.json's `bots`, or use 'me')
+});
+await world.setGpl(12);                     // raises GPL without adding creeps
+await world.resetPowerCreepCooldown('PC1'); // clears the 8h wall-clock respawn cooldown after a death
+```
+
+Engine and mockup quirks worth knowing:
+
+- `pc.shard` reads `undefined` even for a spawned, alive power creep (the mockup always runs a
+  single shard), and an **unspawned** creep's `pc.ticksToLive` is `NaN`, not `undefined`. The only
+  reliable spawned/unspawned check is **`pc.room`**.
+- A power creep that dies gets the engine's real wall-clock 8-hour respawn cooldown, which no
+  scenario can wait out — `world.resetPowerCreepCooldown(name)` clears it, as if it had expired.
+- Powers only work in a room with a controller if `controller.isPowerEnabled` is true (which
+  `enableRoom` sets); a room with no controller never blocks them.
+
+`examples/power-creeps` is a worked example: an unspawned operator spawns itself at a power spawn,
+walks to the controller, enables the room, generates ops and shields itself, while an
+already-placed one runs `OPERATE_TOWER` and `OPERATE_SPAWN` from where it stands. Copy it into
+`scenarios/` and run it.
+
+A replay shows power creeps with the game's own operator art and red tint, a beam and an icon pop on
+`usePower`, a spawn flare, a renew flash, and a pulsing red flare plus a corner pip on anything
+carrying an active effect. The inspector spells out every effect and power in plain English, and
+shows a powered controller's `isPowerEnabled: yes`.
+
 ## Game mods
 
 A scenario can run under a real Screeps **game mod** — the same code the
@@ -417,20 +479,22 @@ See `examples/README.md` for a guided tour. A scenario is a directory
   `world.world.addRoomObjectUnchecked(...)` says so out loud and stays quiet.
 - `maxTicks` — required safety cap.
 - `until(state)` — optional early end condition, evaluated on a DB snapshot
-  after every tick (`state.creeps`, `state.hostileCreeps`, `state.flags`,
-  `state.objects`, `state.gameTime`).
+  after every tick (`state.creeps`, `state.hostileCreeps`, `state.powerCreeps`
+  — your own, spawned ones, keyed by name — `state.flags`, `state.objects`,
+  `state.gameTime`).
 - `expect(result, assert)` — pass/fail. `result` has `endReason`
   (`until` | `maxTicks` | `botDied` | `aborted` — total bot death wins over
   `until`), `ticks`, `damageTaken`, `survived`, `console`, `finalState`.
 
 Maps are JSON (see `examples/walk-to-flag/map.json`): `terrain` is 50 strings of
 50 chars (`.` plain, `~` swamp, `#` wall), plus `structures`, `sources`,
-`controller`, `minerals`, `flags`, `creeps`. A map creep is loaded through
+`controller`, `minerals`, `flags`, `creeps`, `powerCreeps`. A map creep is loaded through
 `world.addCreep` and takes the same fields: `name`, `x`, `y`, `body` and
 optionally `owner`, `store`, `hits`/`hitsMax`, `boosts` (part type → compound,
 e.g. `{ tough: 'XGHO2', move: 'XZHO2' }`) and `ticksToLive` (or an absolute
 `ageTime`; the default is the engine lifetime for the body — 600 ticks for a
-CLAIM body, 1500 otherwise). Multi-room maps validate shared edges
+CLAIM body, 1500 otherwise). A map's `powerCreeps` are loaded through
+`world.addPowerCreep` — see [Power creeps](#power-creeps). Multi-room maps validate shared edges
 (`autoMirror` option available); the loader auto-seals any exit that leads to a
 room the scenario didn't load, so single-room scenarios don't trip pathfinding.
 Enemies can be scripted bots (deterministic, recommended for regressions) or
@@ -522,12 +586,15 @@ button does this interactively; from the CLI:
        npm run import-room -- <scenarioName> W1N1 W2N1
        npm run import-room -- <scenarioName> W7N4:W6N2   # inclusive rectangle
        npm run import-room -- <scenarioName> W1N1 --memory --segments
+       npm run import-room -- <scenarioName> W1N1 --power-creeps
        npm run import-room -- <scenarioName> W1N1 --no-creeps --no-structures
        npm run import-room -- <scenarioName> W1N1 --overwrite
 
-This writes `scenarios/<scenarioName>/map.<ROOM>.json` per room. Memory and
-segments are opt-in in the GUI, or via `--memory` and `--segments` in the CLI;
-when selected they write `memory.json` and `segments.json`. It captures terrain,
+This writes `scenarios/<scenarioName>/map.<ROOM>.json` per room. Memory,
+segments and power creeps are opt-in in the GUI, or via `--memory`, `--segments`
+and `--power-creeps` in the CLI; when selected they write `memory.json`,
+`segments.json` and `power-creeps.json` respectively (see
+[Power creeps](#power-creeps)). It captures terrain,
 your structures and creeps by default; either can be unchecked in the GUI or
 disabled with the CLI flags above. Spawning creeps are never exported. Neutral
 structures, sources, mineral, and controller remain part of the room. Other

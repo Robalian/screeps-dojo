@@ -18,6 +18,7 @@ const FONT_FILES = [
 let sharedRendererPromise = null;
 let terrainTexturesPromise = null;
 let modImagesPromise = null;
+let powerImagesPromise = null;
 let fontsRegistered = false;
 
 function loadTerrainTextures() {
@@ -51,6 +52,25 @@ function loadModImages() {
 		});
 	}
 	return modImagesPromise;
+}
+
+// Official power icons, read off disk so an export looks like the browser
+// (ui/src/assets/screeps-renderer/powers, ISC — see the README there). A file
+// that fails to load is not fatal: every drawing routine falls back to
+// vectors/pills.
+function loadPowerImages() {
+	if (!powerImagesPromise) {
+		const dir = path.resolve(__dirname, '../../ui/src/assets/screeps-renderer/powers');
+		const files = fs.readdirSync(dir).filter(function (file) { return file.endsWith('.png'); });
+		powerImagesPromise = Promise.all(files.map(function (file) {
+			return loadImage(path.join(dir, file)).catch(function () { return undefined; });
+		})).then(function (images) {
+			const powerImages = {};
+			files.forEach(function (file, index) { powerImages[file.slice(0, -'.png'.length)] = images[index]; });
+			return powerImages;
+		});
+	}
+	return powerImagesPromise;
 }
 
 function loadSharedRenderer() {
@@ -156,7 +176,7 @@ async function renderRecording(recording, outFile, options) {
 		options);
 	validateSettings(recording, settings);
 	throwIfCancelled(settings.signal);
-	const [shared, terrainTextures, modImages] = await Promise.all([loadSharedRenderer(), loadTerrainTextures(), loadModImages()]);
+	const [shared, terrainTextures, modImages, powerImages] = await Promise.all([loadSharedRenderer(), loadTerrainTextures(), loadModImages(), loadPowerImages()]);
 	registerFonts(shared.renderFontFamily);
 	const availableRooms = Object.keys(recording.terrain || {});
 	const rooms = Array.isArray(settings.rooms) && settings.rooms.length
@@ -220,6 +240,8 @@ async function renderRecording(recording, outFile, options) {
 			showVisuals: true,
 			showMapVisuals: true,
 			modImages: modImages,
+			// Task 10 adds the drawFrame option this feeds; harmless to pass early.
+			powerImages: powerImages,
 			// Same rule as the browser: sweep turns at ordinary speeds, snap once
 			// a tick is too brief for the sweep to read.
 			smoothTurns: settings.speed <= shared.smoothTurnMaxSpeed

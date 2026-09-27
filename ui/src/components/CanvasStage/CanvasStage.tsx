@@ -6,6 +6,7 @@ import { drawFrame } from '../../canvas/drawFrame';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import { useModImages } from '../../hooks/useModImages';
+import { usePowerImages } from '../../hooks/usePowerImages';
 import { STATIC_LAYER_RESOLUTION } from '../../canvas/renderConstants';
 import { SMOOTH_TURN_MAX_SPEED } from '../../render/geometry';
 import styles from './CanvasStage.module.css';
@@ -23,7 +24,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 function objectLabel(o: FrameObject): string {
   const base = TYPE_LABELS[o.type] || (o.type ? o.type[0].toUpperCase() + o.type.slice(1) : 'Object');
-  if (o.type === 'creep' && o.name) return base + ' · ' + o.name;
+  if ((o.type === 'creep' || o.type === 'powerCreep') && o.name) return base + ' · ' + o.name;
   if (o.type === 'energy' || o.type === 'resource') {
     const amt = o.store ? Object.values(o.store).reduce((a, b) => a + b, 0) : undefined;
     return amt !== undefined ? base + ' · ' + amt : base;
@@ -53,6 +54,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   const fontsReady = useRenderFonts();
   const terrainTextures = useTerrainTextures();
   const modImages = useModImages();
+  const powerImages = usePowerImages();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const view = useRef({ scale: 1, tx: 0, ty: 0 });
@@ -66,12 +68,14 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
   // The draw loop is created once; a ref lets it pick up the artwork as it
   // finishes decoding, without tearing the loop down and back up.
   const modImagesRef = useRef(modImages);
+  const powerImagesRef = useRef(powerImages);
   const [ready, setReady] = useState(false);
   // Multi-object picker: when a click lands on a tile holding >1 object, offer a menu.
   const [menu, setMenu] = useState<{ x: number; y: number; items: FrameObject[] } | null>(null);
   recordingRef.current = recording;
   stateRef.current = { playing, loading, speed, tick, showVisuals, showMapVisuals, selectedId, onEnded };
   modImagesRef.current = modImages;
+  powerImagesRef.current = powerImages;
 
   const colsTiles = (layout.width / layout.pixelsPerRoom) * 50;
   const rowsTiles = (layout.height / layout.pixelsPerRoom) * 50;
@@ -153,7 +157,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
         c.layers.sync(f0);
         drawFrame(ctx, activeRecording, drawTick, st.playing ? sub : null, {
           sprites: c.sprites, layers: c.layers, layout, showVisuals: st.showVisuals, showMapVisuals: st.showMapVisuals,
-          modImages: modImagesRef.current, smoothTurns: st.speed <= SMOOTH_TURN_MAX_SPEED,
+          modImages: modImagesRef.current, powerImages: powerImagesRef.current, smoothTurns: st.speed <= SMOOTH_TURN_MAX_SPEED,
         });
       }
 
@@ -223,7 +227,7 @@ export function CanvasStage({ recording, layout, relPath, playing, loading = fal
     if (hits.length === 0) { onSelectObject(null); setMenu(null); return; }
     if (hits.length === 1) { onSelectObject(hits[0]._id); setMenu(null); return; }
     // >1: order them sensibly (creeps/resources first, big static structures last) and show a picker.
-    const rank = (o: FrameObject) => (o.type === 'creep' ? 0 : o.type === 'energy' || o.type === 'resource' ? 1 : o.type === 'rampart' ? 9 : 5);
+    const rank = (o: FrameObject) => (o.type === 'creep' || o.type === 'powerCreep' ? 0 : o.type === 'energy' || o.type === 'resource' ? 1 : o.type === 'rampart' ? 9 : 5);
     hits.sort((a, b) => rank(a) - rank(b));
     const rect = containerRef.current!.getBoundingClientRect();
     setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top, items: hits });

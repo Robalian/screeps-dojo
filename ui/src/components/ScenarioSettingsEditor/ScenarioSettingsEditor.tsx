@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import { openSettings } from '../../state/settingsOverlay';
 import type { BotProfile, ModProfile, ScreepsProfile } from '../../api/types';
+import { emptyRoster, serializeRoster } from '../../game/powerRoster';
+import { rosterSummary } from '../PowerCreepRoster/rosterView';
 import {
   canonicalName, optionsFor, parseDoc, serializeDoc, toggleMod, validateForm,
   type SettingsForm,
@@ -12,6 +14,9 @@ interface Props {
   scenario: string;
   value: string;
   onChange: (next: string) => void;
+  // The scenario's ⚙ hosts more than settings.json now — the Power creeps row
+  // opens power-creeps.json in the Edit tab that already owns file selection.
+  onOpenFile?: (path: string) => void;
 }
 
 interface Registry {
@@ -37,10 +42,16 @@ const SIDE_SNIPPET = `const { allBotModules, botDir } = require('screeps-dojo/bo
 
 world.addEnemyBot({ modules: allBotModules(null, botDir('enemy')) });`;
 
-export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
+export function ScenarioSettingsEditor({ scenario, value, onChange, onOpenFile }: Props) {
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  // A scenario's power creeps are simply its power-creeps.json — this row is
+  // read-only here and never touches settings.json. Bumping filesVersion
+  // re-probes for the file after Create writes it.
+  const [powerCreeps, setPowerCreeps] = useState<{ present: boolean; summary: string } | null>(null);
+  const [filesVersion, setFilesVersion] = useState(0);
+  const [powerCreepsError, setPowerCreepsError] = useState<string | null>(null);
   // Edits live here, not in the serialized text: serializeDoc drops a row whose
   // side name is still empty, so a round-trip through the file would delete the
   // row the moment someone added it.
@@ -74,6 +85,32 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
     if (value === emittedRef.current) return;
     setDraft(parseDoc(value).form);
   }, [value]);
+
+  // power-creeps.json lives beside settings.json but isn't part of it — probe
+  // for its presence and, if it exists, summarize its content.
+  useEffect(() => {
+    let live = true;
+    api.files(scenario).then((list) => {
+      if (!live) return;
+      if (!list.some((f) => f.path === 'power-creeps.json')) { setPowerCreeps({ present: false, summary: '' }); return; }
+      api.file(scenario, 'power-creeps.json')
+        .then((r) => { if (live) setPowerCreeps({ present: true, summary: rosterSummary(r.content) }); })
+        .catch(() => { if (live) setPowerCreeps({ present: true, summary: 'power-creeps.json has errors' }); });
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [scenario, filesVersion]);
+
+  const createPowerCreeps = async () => {
+    setPowerCreepsError(null);
+    try {
+      await api.saveFile(scenario, 'power-creeps.json', serializeRoster(emptyRoster()));
+    } catch (e) {
+      setPowerCreepsError((e as Error).message);
+      return;                    // don't open or re-probe a file that was never written
+    }
+    setFilesVersion((v) => v + 1);
+    onOpenFile?.('power-creeps.json');
+  };
 
   const parsed = parseDoc(value);
   const form = parsed.error ? null : (draft || parsed.form);
@@ -240,6 +277,25 @@ export function ScenarioSettingsEditor({ scenario, value, onChange }: Props) {
           </div>
         ))}
         {problems.mods && <div className={styles.bad}>{problems.mods}</div>}
+      </div>
+
+      <div className={styles.section}>
+        <div className={styles.label}>Power creeps</div>
+        <div className={styles.pcRow}>
+          <span className={styles.pcText}>
+            {!powerCreeps ? 'Loading…' : powerCreeps.present ? powerCreeps.summary : 'No power creeps in this scenario'}
+          </span>
+          {powerCreeps && (
+            powerCreeps.present
+              ? <button className={styles.link} onClick={() => onOpenFile?.('power-creeps.json')}>Edit</button>
+              : <button className={styles.link} onClick={createPowerCreeps}>Create</button>
+          )}
+        </div>
+        {powerCreepsError && <div className={styles.bad}>{powerCreepsError}</div>}
+        <div className={styles.pcHint}>
+          Available to the bot unspawned; it spawns them itself. Placed ones come from a map&rsquo;s powerCreeps.
+          Import them with the map import&rsquo;s Power creeps checkbox, or with Import from server in the editor.
+        </div>
       </div>
 
       <div className={styles.section}>

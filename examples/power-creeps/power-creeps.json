@@ -1,0 +1,15 @@
+{
+	"gpl": 8,
+	"powerCreeps": [
+		{
+			"name": "PC1",
+			"className": "operator",
+			"powers": { "GENERATE_OPS": 2, "SHIELD": 1 }
+		},
+		{
+			"name": "Placed",
+			"className": "operator",
+			"powers": { "GENERATE_OPS": 1, "OPERATE_TOWER": 1, "OPERATE_SPAWN": 1 }
+		}
+	]
+}

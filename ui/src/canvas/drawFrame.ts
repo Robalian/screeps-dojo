@@ -18,7 +18,11 @@ import {
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
 import { drawReactor, drawUnknownObject } from './modObjects.ts';
 import type { ModImages } from './modImages.ts';
-import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES } from './renderConstants.ts';
+import { drawSpawnFlare } from './powerCreeps.ts';
+import { activeEffects, drawEffectFlares, drawEffectPips } from './powerEffects.ts';
+import type { ActiveEffect } from './powerEffects.ts';
+import type { PowerImages } from './powerImages.ts';
+import { KNOWN_OBJECT_TYPES, RENDER_COLORS, ROOM_SIZE_TILES, isCreepLike } from './renderConstants.ts';
 import { frameObjectsInDrawOrder } from './renderOrder.ts';
 import { drawMapVisuals } from './mapVisuals.ts';
 import { drawUserVisuals } from './roomVisuals.ts';
@@ -38,6 +42,10 @@ interface DrawOptions {
 	// drawing routine falls back to vectors, so a recording still renders if the
 	// images never loaded.
 	modImages?: ModImages;
+	// Official power icons (see powerImages.ts). Optional everywhere: usePower's
+	// icon pop falls back to a vector badge when unloaded or the power has no
+	// artwork.
+	powerImages?: PowerImages;
 }
 
 interface ActionTarget {
@@ -50,7 +58,24 @@ interface RenderActionLog {
 	harvest?: ActionTarget;
 	say?: { message?: unknown; isPublic?: boolean };
 	transferEnergy?: ActionTarget;
+	spawned?: boolean;
 }
+
+interface LiveEffectTarget {
+	worldX: number;
+	worldY: number;
+	effects: ActiveEffect[];
+}
+
+// Reused across drawFrame calls: the flare pass (2e) calls activeEffects()
+// exactly once per object and records the live ones here; the pip pass (4b),
+// after the rampart overlay, reads them back instead of recomputing
+// activeEffects() (which re-scans, re-filters and re-sorts the object's raw
+// effects, and — for the index-keyed shape, Ruling F — re-allocates via
+// Object.values) a second time for the same object on the same frame. Reset
+// by truncating its length each call rather than replacing it, so a frame
+// with nothing live allocates no array here at all.
+const liveEffectTargets: LiveEffectTarget[] = [];
 
 // Draws one frame (tick) at `subFrame` (null = paused/scrub static look;
 // a number in [0,1) = animating).
@@ -106,7 +131,7 @@ export function drawFrame(
 
 	// 2) creeps (interpolated) + HP + effects
 	for (const object of baseObjectsInDrawOrder) {
-		if (object.type !== 'creep') continue;
+		if (!isCreepLike(object.type)) continue;
 		if (object.spawning) {
 			const releasedObject = nextObjectsById?.[object._id];
 			const nextCreep = releasedObject && !releasedObject.spawning ? releasedObject : null;
@@ -158,12 +183,12 @@ export function drawFrame(
 		if (speech?.message) {
 			drawSpeechBubble(ctx, String(speech.message), position.worldX, position.worldY, speech.isPublic === true);
 		}
-		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
+		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room, options.powerImages);
 	}
 	// creeps that appear only next frame (spawned): fade in
 	if (nextFrame) {
 		for (const nextObject of nextObjectsInDrawOrder!) {
-			if (nextObject.type !== 'creep' || nextObject.spawning || baseObjectsById[nextObject._id]) continue;
+			if (!isCreepLike(nextObject.type) || nextObject.spawning || baseObjectsById[nextObject._id]) continue;
 			const position = worldPosition(nextObject.room, nextObject.x, nextObject.y);
 			if (!position) continue;
 			creepRenderer.draw(
@@ -174,6 +199,16 @@ export function drawFrame(
 				creepFacing(frames, frameIndex + 1, nextObject._id, layout),
 				subFrame as number,
 			);
+			// A power creep's first appearance is its spawn flare: the engine's
+			// `spawned` flag sits on this next frame's actionLog, but the creep
+			// itself isn't in baseFrame yet for drawActionEffects to see it there.
+			// Require that flag, not just "new this frame" — a power creep can
+			// also newly appear by walking in from an unrecorded room, or by
+			// being placed mid-run, neither of which is a spawn.
+			const nextActionLog = nextObject.actionLog as RenderActionLog | undefined;
+			if (nextObject.type === 'powerCreep' && nextActionLog?.spawned) {
+				drawSpawnFlare(ctx, position.worldX + 0.5, position.worldY + 0.5, subFrame as number);
+			}
 		}
 	}
 
@@ -199,7 +234,7 @@ export function drawFrame(
 			baseFrame.gameTime + (subFrame ?? 0),
 			object,
 		);
-		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room);
+		drawActionEffects(ctx, actionSource, position.worldX, position.worldY, subFrame, offsets, object.room, options.powerImages);
 	}
 
 	// 2c) spawns: live energy core. Like towers, spawns are baked into the per-
@@ -269,6 +304,25 @@ export function drawFrame(
 		}
 	}
 
+	// 2e) active power effect flares. activeEffects() first: stronghold
+	//     structures all carry never-pruned effect 1002, so compute a position
+	//     (which allocates) only for objects with a LIVE power effect. Uses
+	//     baseFrame.gameTime, like the construction-site pulse and the
+	//     inspector, so the canvas and inspector drop an effect on the same tick.
+	//     activeEffects() runs exactly once per object here; its result (and
+	//     the object's position) is kept in liveEffectTargets for the pip pass
+	//     below, rather than recomputed there.
+	liveEffectTargets.length = 0;
+	for (const object of baseObjectsInDrawOrder) {
+		if (!object.effects) continue;
+		const effects = activeEffects(object, baseFrame.gameTime);
+		if (effects.length === 0) continue;
+		const position = worldPosition(object.room, object.x, object.y);
+		if (!position) continue;
+		liveEffectTargets.push({ worldX: position.worldX, worldY: position.worldY, effects });
+		drawEffectFlares(ctx, effects, position.worldX, position.worldY, baseFrame.gameTime, subFrame);
+	}
+
 	// 3) bot's own RoomVisual draws, on top (drawn from the recording's raw
 	//    command strings — no server round-trip; instant toggle)
 	if (options.showVisuals && tickFrame.visuals) {
@@ -289,6 +343,14 @@ export function drawFrame(
 	// creeps, effects, resources, and user RoomVisuals.
 	if (options.layers.rampart) {
 		ctx.drawImage(options.layers.rampart, 0, 0, widthInTiles, heightInTiles);
+	}
+
+	// 4b) active power effect corner pips: the final pass, after the rampart
+	//     overlay, so SHIELD and FORTIFY targets (ramparts and walls) don't
+	//     tint over them. Replays liveEffectTargets from the flare pass (2e)
+	//     above — no re-walk of baseObjectsInDrawOrder, no second activeEffects().
+	for (const target of liveEffectTargets) {
+		drawEffectPips(ctx, target.effects, target.worldX, target.worldY, options.powerImages);
 	}
 
 	// 5) bot's Game.map.visual draws: a map-scale overlay above the rooms
@@ -340,8 +402,8 @@ function transferNods(frame: Frame, objectsById: Record<string, FrameObject>): R
 			const sourceObject = objectsById[event.objectId];
 			const targetObject = event.data?.targetId ? objectsById[event.data.targetId] : undefined;
 			let creep: FrameObject | undefined, target: FrameObject | undefined;
-			if (sourceObject?.type === 'creep') { creep = sourceObject; target = targetObject; }
-			else if (targetObject?.type === 'creep') { creep = targetObject; target = sourceObject; }
+			if (sourceObject && isCreepLike(sourceObject.type)) { creep = sourceObject; target = targetObject; }
+			else if (targetObject && isCreepLike(targetObject.type)) { creep = targetObject; target = sourceObject; }
 			if (!creep || !target) continue;
 			// A creep can transfer AND withdraw in the same tick (two events) — lean
 			// toward the average of every tile it exchanged with, not just the last.

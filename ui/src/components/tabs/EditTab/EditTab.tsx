@@ -4,6 +4,9 @@ import { api } from '../../../api/client';
 import { CanvasMapEditor, type CanvasMapEditorChangeKind } from '../../CanvasMapEditor/CanvasMapEditor';
 import { MAIN_SIDE, parseDoc } from '../../ScenarioSettingsEditor/settingsDoc';
 import { ScenarioSettingsEditor } from '../../ScenarioSettingsEditor/ScenarioSettingsEditor';
+import { PowerCreepRosterEditor } from '../../PowerCreepRoster/PowerCreepRosterEditor';
+import { rosterHasErrors } from '../../PowerCreepRoster/rosterView';
+import { emptyRoster, serializeRoster } from '../../../game/powerRoster';
 import { UnsavedDialog } from './UnsavedDialog';
 import { clearNavigationGuard, setNavigationGuard, type NavigationGuard } from '../../../state/navigationGuard';
 import { configureJavaScript, jsSideFor, selectJsTypes, stripAnnotation, wantsScenarioAnnotation, withAnnotation } from './editorTypes';
@@ -53,6 +56,7 @@ function clientBoilerplateMap(room: string) {
   return { room, terrain: rows, structures: [{ type: 'controller', x: 25, y: 25 }], flags: [] };
 }
 function newFileContent(name: string): string {
+  if (name === 'power-creeps.json') return serializeRoster(emptyRoster());
   if (/map.*\.json$/i.test(name)) { const m = name.match(/([WE]\d+[NS]\d+)/i); return JSON.stringify(clientBoilerplateMap(m ? m[1] : 'W1N1'), null, '\t'); }
   if (name.endsWith('.js')) return "'use strict';\n";
   if (name.endsWith('.json')) return '{}';
@@ -74,6 +78,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const [importStructures, setImportStructures] = useState(true);
   const [importMemory, setImportMemory] = useState(false);
   const [importSegments, setImportSegments] = useState(false);
+  const [importPowerCreeps, setImportPowerCreeps] = useState(false);
   const [overwriteMaps, setOverwriteMaps] = useState(true);
   const [importLog, setImportLog] = useState<string[]>([]);
   const [token, setToken] = useState<{ needsActivation: boolean; maskedUrl?: string } | null>(null);
@@ -104,13 +109,20 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   const selectedKind = files.find((f) => f.path === selected)?.kind;
   const isMap = selectedKind === 'map';
   const isSettings = selectedKind === 'settings';
-  const structured = isMap || isSettings;
-  const current = isMap ? mapDraft : isSettings ? settingsDraft : content;
+  const isPowerCreeps = selectedKind === 'powerCreeps';
+  const structured = isMap || isSettings || isPowerCreeps;
+  // Power creeps reuses the settings draft slot — only one structured file is
+  // open at a time, so it can.
+  const current = isMap ? mapDraft : (isSettings || isPowerCreeps) ? settingsDraft : content;
   // maps and settings: compare normalized JSON so the editor's re-serialized
   // whitespace doesn't show as "dirty" the instant the file loads.
   const dirty = structured ? normalizedJson(current) !== normalizedJson(savedContent) : current !== savedContent;
 
   dirtyRef.current = dirty;
+
+  // The runner refuses a power-creeps.json with errors anyway (Task 4) — this
+  // just surfaces that refusal before the round trip to the server.
+  const powerCreepsError = isPowerCreeps && rosterHasErrors(settingsDraft) ? 'Fix the power creep errors before saving' : null;
 
   // Bot code and scenario code run in different places, so each .js file gets
   // only its own runtime's completions (see editorTypes.ts).
@@ -234,13 +246,32 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
     if (kind === 'load' && canonicalJson(next) === canonicalJson(savedContent)) setSavedContent(next);
   };
 
-  const open = async (f: FileEntry) => {
+  // Used by the file tree's click handler AND by the scenario ⚙'s Power
+  // creeps row (as onOpenFile), which may be opening a file just created
+  // outside this component's `files` list — refresh so its kind is known.
+  const openFile = async (path: string) => {
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
-    const { content: c } = await api.file(scenario, f.path);
-    load(f.path, c); setStatus('');
+    try {
+      const { content: c } = await api.file(scenario, path);
+      // A file just created outside this component (e.g. the scenario ⚙'s
+      // Power creeps Create link) isn't in `files` yet, so its kind is
+      // unknown — await the refresh before load() so it never opens in the
+      // plain code editor for a render or two before flipping to its form.
+      if (!files.some((f) => f.path === path)) await refreshFiles();
+      load(path, c); setStatus('');
+    } catch (e) { window.alert('Could not open ' + path + ': ' + (e as Error).message); }
   };
   const save = async () => {
     if (!selected) return;
+    // Belt-and-braces beyond the Save button's disabled state: Ctrl+S and the
+    // unsaved-changes dialog's Save both call save() directly, bypassing that
+    // disabled attribute. Refuse here too, so an invalid roster is never
+    // written no matter how save() is reached.
+    if (isPowerCreeps && rosterHasErrors(current)) {
+      const reason = 'Fix the power creep errors before saving';
+      setStatus(reason);
+      throw new Error(reason);
+    }
     await api.saveFile(scenario, selected, current);
     setSavedContent(current); setStatus('saved ✓');
     setTimeout(() => setStatus(''), 1500);
@@ -277,7 +308,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
   // Ctrl/Cmd-S to save
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty) save(); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); if (dirty) save().catch(() => {}); }
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
@@ -309,7 +340,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
     try {
       const { importId } = await api.importRooms(scenario, list, {
         creeps: importCreeps, structures: importStructures,
-        memory: importMemory, segments: importSegments, overwrite: overwriteMaps
+        memory: importMemory, segments: importSegments, powerCreeps: importPowerCreeps, overwrite: overwriteMaps
       });
       const es = new EventSource(api.importStreamUrl(importId));
       es.addEventListener('log', (e) => setImportLog((l) => l.concat(JSON.parse((e as MessageEvent).data).line)));
@@ -348,9 +379,9 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
       <aside className={styles.tree}>
         <div className={styles.head}>files</div>
         {files.map((f) => (
-          <div key={f.path} className={`${styles.row} ${selected === f.path ? styles.rowSel : ''}`} onClick={() => open(f)}>
+          <div key={f.path} className={`${styles.row} ${selected === f.path ? styles.rowSel : ''}`} onClick={() => openFile(f.path)}>
             <span className={styles.fileName}>{f.path}</span>
-            {f.kind === 'map' || f.kind === 'settings' ? <span className={styles.tag}>{f.kind}</span> : null}
+            {f.kind === 'map' || f.kind === 'settings' || f.kind === 'powerCreeps' ? <span className={styles.tag}>{f.kind}</span> : null}
             {f.path !== 'scenario.js' && (
               <button className={styles.del} title="Rename file" onClick={(e) => renameFile(f, e)}>✎</button>
             )}
@@ -368,6 +399,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
             <label><input type="checkbox" checked={importStructures} onChange={(e) => setImportStructures(e.target.checked)} /> My structures</label>
             <label><input type="checkbox" checked={importMemory} onChange={(e) => setImportMemory(e.target.checked)} /> Memory</label>
             <label><input type="checkbox" checked={importSegments} onChange={(e) => setImportSegments(e.target.checked)} /> Memory segments</label>
+            <label title="Your account's power creeps and GPL → power-creeps.json. Spawned ones in these rooms are placed from the map either way."><input type="checkbox" checked={importPowerCreeps} onChange={(e) => setImportPowerCreeps(e.target.checked)} /> Power creeps</label>
             <label><input type="checkbox" checked={overwriteMaps} onChange={(e) => setOverwriteMaps(e.target.checked)} /> Overwrite existing maps</label>
           </div>
           <button className={styles.importBtn} disabled={importing} onClick={runImport}>{importing ? 'importing…' : 'Import from live server'}</button>
@@ -391,23 +423,25 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
                   <button
                     className={view === 'visual' ? styles.viewActive : styles.viewBtn}
                     onClick={() => setView('visual')}
-                  >{isSettings ? 'Form' : 'Visual'}</button>
+                  >{isSettings || isPowerCreeps ? 'Form' : 'Visual'}</button>
                   <button
                     className={view === 'json' ? styles.viewActive : styles.viewBtn}
                     onClick={() => setView('json')}
-                    title={isSettings ? 'Edit the raw settings JSON' : 'Edit the raw map JSON'}
+                    title={isSettings ? 'Edit the raw settings JSON' : isPowerCreeps ? 'Edit the raw power-creeps JSON' : 'Edit the raw map JSON'}
                   >JSON</button>
                 </span>
               )}
               <span className={styles.spacer} />
-              <span className={styles.status}>{status}</span>
-              <button className={styles.save} disabled={!dirty} onClick={save}>Save</button>
+              <span className={styles.status}>{powerCreepsError || status}</span>
+              <button className={styles.save} disabled={!dirty || Boolean(powerCreepsError)} onClick={save}>Save</button>
             </div>
             {structured ? (
               <div className={styles.pane}>
                 {view === 'visual' ? (
-                  isSettings ? (
-                    <ScenarioSettingsEditor key={selected} scenario={scenario} value={settingsDraft} onChange={setSettingsDraft} />
+                  isPowerCreeps ? (
+                    <PowerCreepRosterEditor key={selected} scenario={scenario} text={settingsDraft} onChange={setSettingsDraft} />
+                  ) : isSettings ? (
+                    <ScenarioSettingsEditor key={selected} scenario={scenario} value={settingsDraft} onChange={setSettingsDraft} onOpenFile={openFile} />
                   ) : (
                     <CanvasMapEditor key={selected} value={mapDraft} onChange={onMapEditorChange} mods={scenarioMods} ownerLabels={scenarioSides} />
                   )
@@ -418,7 +452,7 @@ export function EditTab({ scenario, initialFile }: { scenario: string; initialFi
                       theme="vs-dark"
                       language="json"
                       value={current}
-                      onChange={(v) => (isSettings ? setSettingsDraft(v ?? '') : setMapDraft(v ?? ''))}
+                      onChange={(v) => ((isSettings || isPowerCreeps) ? setSettingsDraft(v ?? '') : setMapDraft(v ?? ''))}
                       options={{ fontFamily: 'monospace', fontSize: 13, minimap: { enabled: false }, scrollBeyondLastLine: false }}
                     />
                   </div>

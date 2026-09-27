@@ -314,6 +314,19 @@ describe('roomToMap', function () {
 		assert.strictEqual(result.map.structures[0].ticksToDecay, undefined);
 	});
 
+	// Ruling F: the driver's bulk.js merges an array onto `{}` after usePower
+	// nulls a structure's `effects` field, so a raw engine doc can carry an
+	// index-keyed OBJECT ("0": {...}) instead of an array. rebaseEffects must
+	// accept both shapes and always emit an array.
+	it('rebases an object-shaped effects field (not an array) the same as an array', function () {
+		const result = build([
+			{ type: 'tower', x: 5, y: 5, hits: 3000, hitsMax: 3000,
+				effects: { '0': { effect: 3, power: 3, level: 1, endTime: 1100 } } }
+		], { gameTime: 1000 });
+		assert.deepStrictEqual(result.map.structures[0].effects,
+			[{ effect: 3, power: 3, level: 1, ticksRemaining: 100 }]);
+	});
+
 	it('preserves source and mineral ids when present', function () {
 		const result = build([
 			{ type: 'source', x: 10, y: 10, _id: 'src123' },
@@ -393,5 +406,35 @@ describe('roomToMap', function () {
 			assert.deepStrictEqual(structures[0].population,
 				[{ body: 'fullDefender', behavior: 'simple-melee' }]);
 		});
+	});
+
+	it('exports a live power creep with rebased clocks and named powers', function () {
+		const { map } = roomToMap({
+			roomName: 'W1N1', terrainRows: terrainRows, gameTime: 1000, classifyOwner: id => (id === 'u1' ? 'me' : null),
+			objects: [{
+				_id: 'pc1', type: 'powerCreep', room: 'W1N1', x: 10, y: 11, user: 'u1', name: 'PC1', className: 'operator',
+				level: 3, hits: 3500, hitsMax: 4000, ageTime: 4000, store: { ops: 40 }, storeCapacity: 400,
+				powers: { 1: { level: 2 }, 2: { level: 1, cooldownTime: 1120 } }, actionLog: { power: { id: 1, x: 10, y: 11 } }
+			}]
+		});
+		assert.deepStrictEqual(map.powerCreeps, [{
+			name: 'PC1', x: 10, y: 11, owner: 'me', className: 'operator',
+			powers: { GENERATE_OPS: 2, OPERATE_SPAWN: 1 }, hits: 3500, hitsMax: 4000,
+			ticksToLive: 3000, store: { ops: 40 }, cooldowns: { OPERATE_SPAWN: 120 }, id: 'pc1'
+		}]);
+	});
+
+	it('keeps a power-enabled controller', function () {
+		const { map } = roomToMap({
+			roomName: 'W1N1', terrainRows: terrainRows, gameTime: 1, classifyOwner: () => 'me',
+			objects: [{ _id: 'c', type: 'controller', room: 'W1N1', x: 5, y: 5, level: 8, user: 'u1', isPowerEnabled: true }]
+		});
+		assert.strictEqual(map.controller.isPowerEnabled, true);
+	});
+
+	it('names power ids exactly as powerInfo.ts does', async function () {
+		const { POWERS } = await import('../../ui/src/game/powerInfo.ts');
+		const { POWER_KEYS_BY_ID } = require('../../src/import/roomToMap');
+		for (const power of POWERS) assert.strictEqual(POWER_KEYS_BY_ID[power.id], power.key);
 	});
 });

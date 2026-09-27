@@ -2,7 +2,7 @@
 
 // Imports live rooms from a Screeps server into scenario map.json files.
 // Usage: npm run import-room -- <scenarioName> <ROOM|ROOM:ROOM> [...] [--memory] [--segments]
-//   [--no-creeps] [--no-structures] [--overwrite]
+//   [--power-creeps] [--no-creeps] [--no-structures] [--overwrite]
 //
 // WHICH server is read from the scenario's own settings.json ("server": "<profile>"),
 // falling back to DOJO_DEFAULT_SCREEPS_PROFILE and then the profile named
@@ -21,13 +21,14 @@ function parseArgs(argv) {
 	const scenario = args[0];
 	const includeMemory = args.includes('--memory');
 	const includeSegments = args.includes('--segments');
+	const includePowerCreeps = args.includes('--power-creeps');
 	const includeMyCreeps = !args.includes('--no-creeps');
 	const includeMyStructures = !args.includes('--no-structures');
 	const overwrite = args.includes('--overwrite');
-	const optionNames = new Set(['--memory', '--segments', '--no-creeps', '--no-structures', '--overwrite']);
+	const optionNames = new Set(['--memory', '--segments', '--power-creeps', '--no-creeps', '--no-structures', '--overwrite']);
 	const specs = args.slice(1).filter(function (arg) { return !optionNames.has(arg); });
 	if (!scenario || specs.length === 0) {
-		throw new Error('usage: import-room -- <scenarioName> <ROOM|ROOM:ROOM> [...] [--memory] [--segments]');
+		throw new Error('usage: import-room -- <scenarioName> <ROOM|ROOM:ROOM> [...] [--memory] [--segments] [--power-creeps]');
 	}
 	const { expandRoomSpecs } = require('../src/import/roomSpecs');
 	return {
@@ -35,6 +36,7 @@ function parseArgs(argv) {
 		rooms: expandRoomSpecs(specs),
 		includeMemory: includeMemory,
 		includeSegments: includeSegments,
+		includePowerCreeps: includePowerCreeps,
 		includeMyCreeps: includeMyCreeps,
 		includeMyStructures: includeMyStructures,
 		overwrite: overwrite
@@ -247,6 +249,14 @@ async function main() {
 			console.log('wrote ' + path.join('scenarios', parsed.scenario, 'segments.json')
 				+ ' — segments ' + Object.keys(segments).join(', '));
 		}
+	}
+	if (parsed.includePowerCreeps) {
+		const { loadPowerModel, rosterFromLive, ROSTER_FILE } = require('../src/powerCreeps');
+		const model = await loadPowerModel();
+		const roster = rosterFromLive(await client.powerCreeps(), await client.gplPower(), model);
+		fs.writeFileSync(path.join(outDir, ROSTER_FILE), model.serializeRoster(roster));
+		console.log('wrote ' + path.join('scenarios', parsed.scenario, ROSTER_FILE)
+			+ ' — ' + roster.powerCreeps.map(pc => pc.name).join(', ') + ' (GPL ' + roster.gpl + ')');
 	}
 
 	client.disconnect();

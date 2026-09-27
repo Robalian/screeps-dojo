@@ -2,6 +2,8 @@ import type { FrameObject } from '../../api/types';
 import { TYPE_SCHEMA } from './inspectorSchema';
 import { StoreList, OwnerTag, HitsBar, StatRow } from './pieces';
 import { BOOSTS } from '../CanvasMapEditor/gameData';
+import { POWER_HANDLED_KEYS } from './inspectorPower';
+import { describeEffects, describePowers } from '../../game/effectText';
 
 // Body-part colours (engine `type` strings; ranged_attack has the underscore).
 const PART_COLORS: Record<string, string> = {
@@ -80,7 +82,7 @@ export function ObjectInspector({ obj, gameTime, botUserId }: {
 
   // Fields already surfaced (identity + this type's schema) — everything else
   // still shows in the formatted catch-all, so nothing is hidden.
-  const handled = new Set(BASE_HANDLED);
+  const handled = new Set([...BASE_HANDLED, ...POWER_HANDLED_KEYS]);
   if (schema) for (const stat of schema.stats) for (const k of stat.keys) handled.add(k);
 
   const others = Object.entries(obj as Record<string, unknown>)
@@ -117,6 +119,44 @@ export function ObjectInspector({ obj, gameTime, botUserId }: {
           <BodyGrid body={body} />
         </div>
       )}
+
+      {/* power creep powers */}
+      {obj.type === 'powerCreep' && (() => {
+        const lines = describePowers(obj.powers, gameTime);
+        return lines.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <div style={{ color: 'var(--muted)' }}>powers</div>
+            {lines.map((line) => (
+              <div key={line.key} title={line.cost} style={{ display: 'flex', flexDirection: 'column', marginTop: 2 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontWeight: 600 }}>{line.title}</span>
+                  <span style={{ color: line.status === 'ready' ? 'var(--accent)' : 'var(--warn)' }}>{line.status}</span>
+                </div>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{line.detail} · {line.cost}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* active effects, any object */}
+      {(() => {
+        const lines = describeEffects(obj.effects, gameTime);
+        return lines.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <div style={{ color: 'var(--muted)' }}>effects</div>
+            {lines.map((line) => (
+              <div key={line.key} style={{ display: 'flex', flexDirection: 'column', marginTop: 2 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontWeight: 600, color: '#f4e383' }}>{line.title}</span>
+                  <span style={{ color: 'var(--muted)' }}>{line.remaining}</span>
+                </div>
+                {line.detail && <span style={{ fontSize: 12 }}>{line.detail}</span>}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* id + anything not explicitly handled, formatted (nothing hidden) */}
       <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.08)' }}>

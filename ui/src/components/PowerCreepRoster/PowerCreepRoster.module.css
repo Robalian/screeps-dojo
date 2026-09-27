@@ -1,0 +1,72 @@
+/* Layout only — colors/typography for text bits are borrowed from
+   Settings.module.css (section, label, hint, err) so the form reads like the
+   rest of the app's settings screens. */
+.wrap { display: flex; flex-direction: column; gap: 14px; }
+
+.headerRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.headerRow input[type="number"] {
+  width: 90px; background: var(--bg2); border: 1px solid var(--line2); color: var(--text);
+  border-radius: var(--radius); padding: 4px 6px;
+}
+.headerRow select {
+  background: var(--bg2); border: 1px solid var(--line2); color: var(--text);
+  border-radius: var(--radius); padding: 4px 6px;
+}
+.headerRow button {
+  background: var(--accent-dim); border: 1px solid var(--accent); color: var(--accent);
+  border-radius: var(--radius); padding: 4px 10px;
+}
+.headerRow button:disabled { opacity: 0.5; }
+.gplHint { color: var(--muted); font-size: 11px; }
+.importError { color: var(--hostile); font-size: 11px; width: 100%; }
+
+.warnText { color: var(--warn); font-size: 11px; margin-top: 6px; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; }
+.cardHead { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.cardHead input[type="text"] {
+  background: var(--bg2); border: 1px solid var(--line2); color: var(--text);
+  border-radius: var(--radius); padding: 4px 6px; width: 160px;
+}
+.className { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+.summary { color: var(--text-dim); font-size: 11px; flex: 1; }
+.removeCreep { background: transparent; border: 1px solid var(--line2); color: var(--muted); border-radius: var(--radius); padding: 3px 8px; font-size: 11px; }
+.removeCreep:hover { border-color: var(--hostile); color: var(--hostile); }
+
+.addCreep { background: transparent; border: 1px dashed var(--line2); color: var(--muted); border-radius: var(--radius); padding: 6px 14px; margin-top: 2px; }
+.addCreep:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 4-column power grid: icon+label, stepper, blocker, description */
+.grid { display: grid; grid-template-columns: 170px 90px 140px 1fr; gap: 4px 10px; margin-top: 8px; align-items: center; }
+.row { display: contents; }
+.rowUnknown .rowIcon, .rowUnknown .rowLabel { color: var(--hostile); }
+
+.rowIconLabel { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rowIcon { width: 22px; height: 22px; flex: none; border-radius: 4px; object-fit: contain; }
+.pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; flex: none; border-radius: 4px;
+  background: var(--bg2); border: 1px solid var(--line2); color: var(--text-dim);
+  font-size: 9px; font-weight: 600; letter-spacing: 0.5px;
+}
+.rowLabel { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper button {
+  background: var(--bg2); border: 1px solid var(--line2); color: var(--text);
+  border-radius: var(--radius); width: 20px; height: 20px; line-height: 1; padding: 0;
+}
+.stepper button[aria-disabled="true"] { opacity: 0.35; cursor: default; }
+.stepper button:hover:not([aria-disabled="true"]) { border-color: var(--accent); color: var(--accent); }
+.level { color: var(--text); font-size: 12px; width: 14px; text-align: center; }
+
+.blocker { color: var(--muted); font-size: 10.5px; }
+
+.description { color: var(--text-dim); font-size: 10.5px; line-height: 1.4; }
+.description .cost { color: var(--muted); display: block; }
+
+.learned { opacity: 1; }
+.unlearned { opacity: 0.55; }
+
+.unknownRow { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--hostile); font-size: 11px; }
+.unknownRow button { background: transparent; border: 1px solid var(--hostile); color: var(--hostile); border-radius: var(--radius); padding: 2px 8px; font-size: 10px; }

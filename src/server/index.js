@@ -86,6 +86,7 @@ function createServer(opts) {
 	require('./routes/runs')(router, ctx);
 	require('./routes/render')(router, ctx);
 	require('./routes/files')(router, ctx);
+	require('./routes/powerCreeps')(router, ctx);
 	require('./routes/import')(router, ctx);
 	require('./routes/env')(router, ctx);
 	require('./routes/hostAgent')(router, ctx);

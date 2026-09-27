@@ -36,6 +36,16 @@ export const RENDER_COLORS = {
 		otherStructure: OTHER_STRUCTURE,
 		publicStructure: '#aaaaaa',
 	},
+	powerCreep: {
+		tint: '#cc3d3e',
+		dark: '#1d1d1d',
+		glow: '#ff5555',
+		spawnFlare: '#ff1111',
+		renew: '#2ce328',
+		beam: '#cc3d3e',
+		effectFlare: '#ff0000',
+		iconFill: '#f4e383',
+	},
 	creep: {
 		heal: HEALTH,
 		rangedAttack: RANGED_ATTACK,
@@ -271,6 +281,9 @@ export const UNKNOWN_OBJECT_RENDER_STYLE = {
 	labelOffsetY: 0.15,
 	labelChars: 3,
 } as const;
+
+// Creeps and power creeps share movement, facing, HP and action effects.
+export function isCreepLike(type: string): boolean { return type === 'creep' || type === 'powerCreep'; }
 
 // Types the renderer draws deliberately, somewhere. Anything outside this set
 // came from a mod the renderer does not know, and gets the marker above.

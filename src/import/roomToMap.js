@@ -48,13 +48,30 @@ const ABSOLUTE_DECAY_FIELDS = {
 // the engine treats a missing one as "ready".
 const ABSOLUTE_TICK_FIELDS = ['cooldownTime', 'deployTime', 'nextExpandTime', 'nextSpawnTime'];
 
+// Engine PWR_* ids -> names; pinned to ui/src/game/powerInfo.ts by a test.
+const POWER_KEYS_BY_ID = [null, 'GENERATE_OPS', 'OPERATE_SPAWN', 'OPERATE_TOWER', 'OPERATE_STORAGE', 'OPERATE_LAB',
+	'OPERATE_EXTENSION', 'OPERATE_OBSERVER', 'OPERATE_TERMINAL', 'DISRUPT_SPAWN', 'DISRUPT_TOWER', 'DISRUPT_SOURCE',
+	'SHIELD', 'REGEN_SOURCE', 'REGEN_MINERAL', 'DISRUPT_TERMINAL', 'OPERATE_POWER', 'FORTIFY', 'OPERATE_CONTROLLER',
+	'OPERATE_FACTORY'];
+
+// A raw engine `effects` field is USUALLY an array, but the driver's bulk.js
+// merges an array onto `{}` after usePower nulls the field, which leaves it
+// as an index-keyed OBJECT (`{"0": {...}}`) instead. Normalize both shapes to
+// an array before iterating; the map always ends up holding an array.
+function effectsToArray(effects) {
+	if (Array.isArray(effects)) return effects;
+	if (effects && typeof effects === 'object') return Object.values(effects);
+	return [];
+}
+
 // Rebase a doc's `effects[]` (power/season effects with an absolute `endTime`)
 // onto relative `ticksRemaining`. Expired effects are dropped. Without a
 // gameTime there is nothing to measure against, so the whole list is dropped.
 function rebaseEffects(effects, gameTime) {
-	if (!Array.isArray(effects) || typeof gameTime !== 'number') return undefined;
+	if (typeof gameTime !== 'number') return undefined;
+	const list = effectsToArray(effects);
 	const out = [];
-	for (const effect of effects) {
+	for (const effect of list) {
 		if (!effect || typeof effect !== 'object') continue;
 		const copy = Object.assign({}, effect);
 		if (typeof copy.endTime === 'number') {
@@ -171,6 +188,7 @@ function roomToMap(input) {
 				controller.owner = tag;
 				if (!OWNER_TAGS[tag]) usedLabels.add(tag);
 			}
+			if (object.isPowerEnabled === true) controller.isPowerEnabled = true;
 			map.controller = controller;
 			continue;
 		}
@@ -225,6 +243,46 @@ function roomToMap(input) {
 			const store = cleanStore(object.store);
 			if (store) creep.store = store;
 			map.creeps.push(creep);
+			continue;
+		}
+		if (object.type === 'powerCreep') {
+			if (tag === null) continue;
+			if (tag === 'me' && !includeMyCreeps) continue;
+			if (!OWNER_TAGS[tag]) usedLabels.add(tag);
+			const powers = {};
+			const cooldowns = {};
+			for (const id of Object.keys(object.powers || {})) {
+				const key = POWER_KEYS_BY_ID[Number(id)];
+				const slot = object.powers[id];
+				if (!key || !slot || !(slot.level > 0)) continue;
+				powers[key] = slot.level;
+				if (Number.isFinite(slot.cooldownTime) && Number.isFinite(gameTime) && slot.cooldownTime > gameTime) {
+					cooldowns[key] = slot.cooldownTime - gameTime;
+				}
+			}
+			// Live API gotcha: a hostile power creep's socket doc may report only
+			// `level`, with no per-power `powers` map — a map entry without powers
+			// would fail dojoWorld.addPowerCreep, so skip and count it instead.
+			if (Object.keys(powers).length === 0) {
+				skipped.powerCreepWithoutPowers = (skipped.powerCreepWithoutPowers || 0) + 1;
+				continue;
+			}
+			const powerCreep = {
+				name: object.name, x: object.x, y: object.y, owner: tag,
+				className: object.className || 'operator', powers: powers,
+				hits: object.hits, hitsMax: object.hitsMax
+			};
+			if (Number.isFinite(object.ageTime) && Number.isFinite(gameTime)) {
+				powerCreep.ticksToLive = Math.max(1, object.ageTime - gameTime);
+			} else if (Number.isFinite(object.ticksToLive)) {
+				powerCreep.ticksToLive = Math.max(1, object.ticksToLive);
+			}
+			const store = cleanStore(object.store);
+			if (store) powerCreep.store = store;
+			if (Object.keys(cooldowns).length) powerCreep.cooldowns = cooldowns;
+			if (object._id) powerCreep.id = object._id;
+			map.powerCreeps = map.powerCreeps || [];
+			map.powerCreeps.push(powerCreep);
 			continue;
 		}
 		if (known.has(object.type)) {
@@ -293,4 +351,4 @@ function roomToMap(input) {
 	return { map: map, skipped: skipped };
 }
 
-module.exports = { roomToMap: roomToMap, KNOWN_STRUCTURES: KNOWN_STRUCTURES };
+module.exports = { roomToMap: roomToMap, KNOWN_STRUCTURES: KNOWN_STRUCTURES, POWER_KEYS_BY_ID: POWER_KEYS_BY_ID };

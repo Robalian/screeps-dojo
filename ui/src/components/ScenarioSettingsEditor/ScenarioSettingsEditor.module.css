@@ -32,3 +32,10 @@
 .modList { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 4px 0 0; padding-left: 16px; }
 .modList li { margin: 0; }
 .modGone { color: var(--warn); }
+
+/* Power creeps: a single read-only summary row, not a field, so it doesn't
+   inherit .field's fixed-width label column. */
+.pcRow { display: flex; align-items: center; gap: 10px; }
+.pcText { color: var(--text-dim); font-size: 12px; }
+.pcHint { color: var(--muted); font-size: 11px; margin: 6px 0 2px; line-height: 1.6; max-width: 460px; }
+.pcHint code { color: var(--accent); }

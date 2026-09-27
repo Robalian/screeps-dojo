@@ -61,7 +61,7 @@ export function nextLocal(base: FrameObject, next: FrameObject, layout: StageLay
 }
 
 // Facing angle in degrees.
-const ACTION_KEYS = ['harvest', 'attack', 'upgradeController', 'heal', 'rangedAttack', 'rangedHeal', 'build'];
+const ACTION_KEYS = ['harvest', 'attack', 'upgradeController', 'heal', 'rangedAttack', 'rangedHeal', 'build', 'power'];
 function facingDelta(a: FrameObject, b: { room: string; x: number; y: number }, layout: StageLayout): number | undefined {
   let dx: number, dy: number;
   if (a.room === b.room) { dx = b.x - a.x; dy = b.y - a.y; }
@@ -89,7 +89,7 @@ class FacingCache {
 
   private indexFrame(frame: Frame): Record<string, FrameObject> {
     const indexed: Record<string, FrameObject> = {};
-    for (const object of frame.objects) if (object.type === 'creep') indexed[object._id] = object;
+    for (const object of frame.objects) if (object.type === 'creep' || object.type === 'powerCreep') indexed[object._id] = object;
     return indexed;
   }
 

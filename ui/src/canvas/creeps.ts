@@ -1,5 +1,6 @@
 import type { FrameObject } from '../api/types.ts';
 import { RENDER_COLORS } from './renderConstants.ts';
+import { drawPowerCreep } from './powerCreeps.ts';
 
 const NPC_USERS = new Set(['2', '3']);
 const CREEP_SIZE = 1.25;
@@ -120,7 +121,10 @@ export class CreepRenderer {
 		ctx.translate(worldX + 0.5, worldY + 0.5);
 		if (object.spawning === undefined || object.spawning !== true) {
 
-			if (this.isNpc(object)) {
+			if (object.type === 'powerCreep') {
+				ctx.rotate((facingDegrees + 90) * Math.PI / 180);
+				drawPowerCreep(ctx, object, this.isBot(object) ? RENDER_COLORS.ownership.bot : RENDER_COLORS.ownership.opponent);
+			} else if (this.isNpc(object)) {
 				ctx.rotate(facingDegrees * Math.PI / 180);
 				drawInvader(ctx);
 			} else {

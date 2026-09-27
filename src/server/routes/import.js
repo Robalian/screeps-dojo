@@ -76,6 +76,7 @@ module.exports = function registerImportRoutes(router, ctx) {
 		catch (e) { ctx.sendJson(res, 400, { error: e.message }); return; }
 		const includeMemory = Boolean(req.body && req.body.memory === true);
 		const includeSegments = Boolean(req.body && req.body.segments === true);
+		const includePowerCreeps = Boolean(req.body && req.body.powerCreeps === true);
 		const includeMyCreeps = !req.body || req.body.creeps !== false;
 		const includeMyStructures = !req.body || req.body.structures !== false;
 		const overwrite = Boolean(req.body && req.body.overwrite === true);
@@ -92,6 +93,7 @@ module.exports = function registerImportRoutes(router, ctx) {
 		const childArgs = ['scripts/importRoom.js', name].concat(rooms);
 		if (includeMemory) childArgs.push('--memory');
 		if (includeSegments) childArgs.push('--segments');
+		if (includePowerCreeps) childArgs.push('--power-creeps');
 		if (!includeMyCreeps) childArgs.push('--no-creeps');
 		if (!includeMyStructures) childArgs.push('--no-structures');
 		if (overwrite) childArgs.push('--overwrite');
