@@ -5,7 +5,15 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
-## [Unreleased]
+## [0.16.0] — 2026-09-27
+
+Power creeps come to the dojo. A scenario's `power-creeps.json` gives the bot its
+power creeps, unspawned, for its own code to spawn; maps can place spawned ones;
+and both import straight from a live server. In a replay they look like they do
+in the game, every power they use is animated, anything under an effect pulses
+with a pip naming the power, and the inspector spells each effect out in plain
+English. Scenarios now load dojo's own code by package name, so they survive
+being moved into folders.
 
 ### Added
 
@@ -1220,6 +1228,7 @@ server simulates them. Plus a rebuilt replay renderer and inspector.
 
 Initial tracked release.
 
+[0.16.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.16.0
 [0.15.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.15.0
 [0.14.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.14.0
 [0.13.0]: https://github.com/TimPickup/screeps-dojo/releases/tag/v0.13.0
