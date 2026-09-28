@@ -12,7 +12,7 @@ import { StaticLayers } from './caches.ts';
 import { CreepRenderer } from './creeps.ts';
 import {
 	drawExtensionFill, drawLinkFill, drawStorageFill, drawTerminalFill, drawLabFill, drawContainerFill, drawTowerTurret,
-	drawSourceCore, drawControllerProgress, drawSpawnFill, drawSpawnProgress, drawTombstone, drawDroppedResource,
+	drawSourceCore, drawControllerProgress, drawSpawnFill, drawSpawnProgress, drawTombstone, drawRuin, drawPortal, drawNuke, drawDroppedResource, droppedPile,
 	drawConstructionSite,
 } from './dynamic.ts';
 import { drawActionEffects, drawBeam, drawHitPointsBar, drawSpeechBubble } from './effects.ts';
@@ -282,6 +282,9 @@ export function drawFrame(
 				drawConstructionSite(ctx, object, centerX, centerY, baseFrame.gameTime + (subFrame ?? 0));
 				break;
 			case 'tombstone': drawTombstone(ctx, centerX, centerY); break;
+			case 'ruin': drawRuin(ctx, object, centerX, centerY); break;
+			case 'portal': drawPortal(ctx, centerX, centerY); break;
+			case 'nuke': drawNuke(ctx, centerX, centerY); break;
 			// Season 5. Drawn per frame rather than baked into the structure
 			// layer: its edge turns, and it starts and stops turning as Thorium
 			// arrives and burns away.
@@ -289,11 +292,8 @@ export function drawFrame(
 				drawReactor(ctx, object, centerX, centerY, baseFrame.gameTime + (subFrame ?? 0), options.modImages);
 				break;
 			case 'energy': case 'resource': {
-				const store = (object.store as Record<string, number> | undefined) || {};
-				let amount = 0;
-				for (const resourceType of Object.keys(store)) amount += store[resourceType];
-				const resourceType = (object.resourceType as string) || Object.keys(store)[0] || 'energy';
-				drawDroppedResource(ctx, centerX, centerY, amount, resourceType);
+				const pile = droppedPile(object);
+				drawDroppedResource(ctx, centerX, centerY, pile.amount, pile.resourceType);
 				break;
 			}
 			default:

@@ -7,7 +7,7 @@
 
 import type { Frame, FrameObject, StageLayout } from '../../api/types';
 import { drawMergedWalls, drawStaticStructures } from '../../canvas/staticLayers';
-import { drawConstructionSite, drawDroppedResource, drawSourceCore, drawTombstone, drawTowerTurret } from '../../canvas/dynamic';
+import { drawConstructionSite, drawDroppedResource, drawNuke, drawPortal, drawRuin, drawSourceCore, drawTombstone, drawTowerTurret, droppedPile } from '../../canvas/dynamic';
 import { drawReactor } from '../../canvas/modObjects';
 import { drawRamparts } from '../../canvas/ramparts';
 import { CreepRenderer } from '../../canvas/creeps';
@@ -33,14 +33,6 @@ export interface PreviewOptions {
 // renderer picks the invader silhouette off the raw id, so the two have to be
 // reconciled or an imported invader draws as an ordinary creep.
 export const NPC_USER_IDS: Record<string, string> = { invader: '2', sourceKeeper: '3' };
-
-function amountOf(object: FrameObject): number {
-	const store = object.store as Record<string, number> | undefined;
-	if (!store) return 0;
-	let total = 0;
-	for (const key of Object.keys(store)) total += Number(store[key]) || 0;
-	return total;
-}
 
 // An editable object as the renderer's FrameObject. Creeps get their body
 // expanded into the engine's `[{ type, hits }]` docs, because that is what the
@@ -69,11 +61,6 @@ export function toFrameObject(object: EditableObject, room: string, index: numbe
 		));
 		output.storeCapacity = creepCapacity(object.body, object.boosts);
 	}
-	// A dropped pile keeps its size in a field named after the resource; the
-	// renderer reads `store`, so mirror it for drawing only.
-	if (object.type === 'energy' && typeof object.amount === 'number') {
-		output.store = { [String(object.resourceType || 'energy')]: object.amount };
-	}
 	return output;
 }
 
@@ -96,10 +83,12 @@ export function drawPreviewFrame(
 		else if (object.type === 'reactor') drawReactor(ctx, object, cx, cy, frame.gameTime, options.modImages);
 		else if (object.type === 'source') drawSourceCore(ctx, object, cx, cy);
 		else if (object.type === 'energy' || object.type === 'resource') {
-			const store = object.store as Record<string, number> | undefined;
-			const resource = store ? Object.keys(store)[0] || 'energy' : 'energy';
-			drawDroppedResource(ctx, cx, cy, amountOf(object) || 1, resource);
-		} else if (object.type === 'tombstone' || object.type === 'ruin') drawTombstone(ctx, cx, cy);
+			const pile = droppedPile(object);
+			drawDroppedResource(ctx, cx, cy, pile.amount || 1, pile.resourceType);
+		} else if (object.type === 'tombstone') drawTombstone(ctx, cx, cy);
+		else if (object.type === 'ruin') drawRuin(ctx, object, cx, cy);
+		else if (object.type === 'portal') drawPortal(ctx, cx, cy);
+		else if (object.type === 'nuke') drawNuke(ctx, cx, cy);
 		// A static pulse: the editor has no clock, so it draws the peak.
 		else if (object.type === 'constructionSite') drawConstructionSite(ctx, object, cx, cy, 0);
 		else if (object.type === 'creep') {

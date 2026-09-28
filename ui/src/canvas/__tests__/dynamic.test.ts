@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   energyFillFraction, drawExtensionFill, drawTerminalFill, drawLabFill, drawTowerTurret, towerTurretAngle, drawSourceCore, drawDroppedResource, CONTROLLER_LEVELS, drawControllerProgress,
-  drawConstructionSite, constructionSitePulseOpacity,
+  drawConstructionSite, constructionSitePulseOpacity, droppedPile, drawRuin, drawPortal, drawNuke,
 } from '../dynamic';
 import { CONSTRUCTION_SITE_RENDER_STYLE, RENDER_COLORS } from '../renderConstants';
 import { mockCtx } from './mockCtx';
@@ -257,5 +257,41 @@ describe('controller progress', () => {
     const { ctx, log } = mockCtx();
     drawControllerProgress(ctx, { level: 4, progress: 200000 } as any, 5.5, 5.5);
     expect(log.some((c) => c.op === 'arc')).toBe(true);
+  });
+});
+
+// The engine keeps a dropped pile's size in a field named after the resource;
+// reading `store` (which a pile does not have) drew every pile as empty energy.
+describe('dropped piles', () => {
+  const pile = (fields: Record<string, unknown>) => ({ _id: 'p', type: 'energy', room: 'W1N1', x: 0, y: 0, ...fields } as unknown as FrameObject);
+  it('reads the engine shape', () => {
+    expect(droppedPile(pile({ resourceType: 'energy', energy: 747 }))).toEqual({ resourceType: 'energy', amount: 747 });
+    expect(droppedPile(pile({ resourceType: 'H', H: 300 }))).toEqual({ resourceType: 'H', amount: 300 });
+  });
+  it('reads a map entry amount', () => {
+    expect(droppedPile(pile({ resourceType: 'H', amount: 747 }))).toEqual({ resourceType: 'H', amount: 747 });
+  });
+  it('falls back to a store', () => {
+    expect(droppedPile(pile({ store: { O: 40 } }))).toEqual({ resourceType: 'O', amount: 40 });
+  });
+});
+
+describe('ruins', () => {
+  it('draws rubble, plus a loot dot only while it holds something', () => {
+    const ruin = (store: Record<string, number>) => ({ _id: 'r', type: 'ruin', room: 'W1N1', x: 0, y: 0, store } as unknown as FrameObject);
+    const empty = mockCtx(); drawRuin(empty.ctx, ruin({}), 0.5, 0.5);
+    const full = mockCtx(); drawRuin(full.ctx, ruin({ energy: 500 }), 0.5, 0.5);
+    expect(empty.log.some((c) => c.op === 'fill')).toBe(true);
+    expect(full.log.filter((c) => c.op === 'arc').length).toBeGreaterThan(empty.log.filter((c) => c.op === 'arc').length);
+  });
+});
+
+// Both were listed as known types but had no drawing, so they were invisible.
+describe('portals and nukes', () => {
+  it('draw something', () => {
+    const portal = mockCtx(); drawPortal(portal.ctx, 0.5, 0.5);
+    const nuke = mockCtx(); drawNuke(nuke.ctx, 0.5, 0.5);
+    expect(portal.log.filter((c) => c.op === 'arc').length).toBe(3);
+    expect(nuke.log.some((c) => c.op === 'fillRect')).toBe(true);
   });
 });

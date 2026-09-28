@@ -186,19 +186,24 @@ function createClient(config) {
 			const terrainRows = decodeTerrain(encoded);
 			const gameTime = await this.serverTime();
 
-			const objects = await new Promise(function (resolve, reject) {
+			const snapshot = await new Promise(function (resolve, reject) {
 				const timer = setTimeout(function () { reject(new Error('room snapshot timed out for ' + roomName)); }, 15000);
 				api.socket.subscribeRoom(roomName, shard, function (event) {
 					if (!event || !event.data || !event.data.objects) return;
 					clearTimeout(timer);
 					api.socket.unsubscribeRoom(roomName, shard);
-					// First payload is the full set: id -> object doc.
-					resolve(Object.keys(event.data.objects).map(function (id) {
-						return Object.assign({ _id: id }, event.data.objects[id]);
-					}));
+					// First payload is the full set: id -> object doc. `flags` is
+					// this account's own flags in the room, in the engine's
+					// "name~color~secondary~x~y|..." string (null when none).
+					resolve({
+						objects: Object.keys(event.data.objects).map(function (id) {
+							return Object.assign({ _id: id }, event.data.objects[id]);
+						}),
+						flags: typeof event.data.flags === 'string' ? event.data.flags : ''
+					});
 				}).catch(reject);
 			});
-			return { terrainRows: terrainRows, objects: objects, gameTime: gameTime };
+			return { terrainRows: terrainRows, objects: snapshot.objects, flags: snapshot.flags, gameTime: gameTime };
 		},
 
 		async getMemory() {

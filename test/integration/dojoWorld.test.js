@@ -358,6 +358,19 @@ describe('DojoWorld updateObject / removeObject', function () {
 		assert.strictEqual(doc.nextDecayTime - gameTime, 7);
 	});
 
+	// 'unclaimed' (the editor's "unclaimed / neutral") means no owner — it used
+	// to be written as a user literally called 'unclaimed'.
+	it("removes the owner when updated to 'unclaimed', and never creates one", async function () {
+		const id = await world.addObject('W0N0', 'rampart', 36, 31, { owner: 'me' });
+		await world.updateObject({ _id: id }, { owner: 'unclaimed', hits: 50 });
+		const placed = await world.addObject('W0N0', 'extractor', 37, 31, { owner: 'neutral' });
+		const { db } = await world.world.load();
+		const doc = await db['rooms.objects'].findOne({ _id: id });
+		assert.strictEqual(doc.user, undefined);
+		assert.strictEqual(doc.hits, 50, 'the rest of the update still applies');
+		assert.strictEqual((await db['rooms.objects'].findOne({ _id: placed })).user, undefined);
+	});
+
 	// Unlike a new object, an update must never DEFAULT a clock: bumping a
 	// rampart's hits cannot silently restart its decay deadline.
 	it('leaves an untouched clock alone', async function () {

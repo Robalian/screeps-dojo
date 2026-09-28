@@ -293,6 +293,132 @@ describe('roomToMap', function () {
 		assert.strictEqual(result.map.structures[0].ticksToDecay, 1);
 	});
 
+	// Every type the dojo can load used to be dropped as "unknown" except
+	// structures; these are the shapes the engine writes for the rest.
+	describe('floor and in-flight objects', function () {
+		it('keeps a tombstone with the creep it was and rebased clocks', function () {
+			// Shape taken verbatim from a live season E27S23 snapshot.
+			const result = build([{
+				_id: '6ab9a444a78afb089c129a54', type: 'tombstone', room: 'E27S23', x: 7, y: 35, user: 'mine',
+				deathTime: 803539, decayTime: 803554, creepId: '6ab9a420ff7777ba409fb0e1', creepName: 'E27S23_lamb',
+				creepTicksToLive: 1499, creepBody: ['work', 'work', 'work'], creepSaying: null, store: { energy: 299 }
+			}], { gameTime: 803551 });
+			assert.deepStrictEqual(result.skipped, {});
+			assert.deepStrictEqual(result.map.structures, [{
+				type: 'tombstone', x: 7, y: 35, id: '6ab9a444a78afb089c129a54', owner: 'me',
+				creepId: '6ab9a420ff7777ba409fb0e1', creepName: 'E27S23_lamb', creepTicksToLive: 1499,
+				creepBody: ['work', 'work', 'work'], creepSaying: null,
+				ticks: { deathTime: -12 }, ticksToDecay: 3, store: { energy: 299 }
+			}]);
+		});
+
+		it("keeps another player's construction site under their label", function () {
+			// Shape taken verbatim from a live season E26S24 snapshot.
+			const result = build([{
+				_id: '6ab97916ff777727049f9dc1', structureType: 'road', x: 32, y: 45, type: 'constructionSite',
+				room: 'E26S24', user: 'p1', progress: 0, progressTotal: 300
+			}], { gameTime: 1 });
+			assert.deepStrictEqual(result.map.structures, [{
+				type: 'constructionSite', x: 32, y: 45, id: '6ab97916ff777727049f9dc1', owner: 'almaravarion',
+				structureType: 'road', progress: 0, progressTotal: 300
+			}]);
+		});
+
+		it('keeps a deposit with its harvest count and both clocks rebased', function () {
+			const result = build([{
+				_id: 'd', type: 'deposit', x: 5, y: 5, depositType: 'mist', harvested: 1200,
+				cooldownTime: 1030, decayTime: 50000
+			}], { gameTime: 1000 });
+			assert.deepStrictEqual(result.map.structures, [{
+				type: 'deposit', x: 5, y: 5, id: 'd', depositType: 'mist', harvested: 1200,
+				ticks: { cooldownTime: 30 }, ticksToDecay: 49000
+			}]);
+		});
+
+		it('keeps a portal, permanent or closing', function () {
+			const result = build([
+				{ _id: 'a', type: 'portal', x: 25, y: 25, destination: { shard: 'shard1', room: 'E30N30' } },
+				{ _id: 'b', type: 'portal', x: 26, y: 25, destination: { room: 'W1N1', x: 5, y: 5 }, decayTime: 1500 }
+			], { gameTime: 1000 });
+			assert.deepStrictEqual(result.map.structures, [
+				{ type: 'portal', x: 25, y: 25, id: 'a', destination: { shard: 'shard1', room: 'E30N30' } },
+				{ type: 'portal', x: 26, y: 25, id: 'b', destination: { room: 'W1N1', x: 5, y: 5 }, ticksToDecay: 500 }
+			]);
+		});
+
+		it('keeps an in-flight nuke with its time to land', function () {
+			const result = build([
+				{ _id: 'n', type: 'nuke', x: 20, y: 20, landTime: 50000, launchRoomName: 'E20S20' }
+			], { gameTime: 1000 });
+			assert.deepStrictEqual(result.map.structures, [
+				{ type: 'nuke', x: 20, y: 20, id: 'n', launchRoomName: 'E20S20', ticks: { landTime: 49000 } }
+			]);
+		});
+
+		it("keeps this account's flags from the room feed", function () {
+			const result = build([], { flags: 'attack~1~2~10~11|rally~5~5~20~21' });
+			assert.deepStrictEqual(result.map.flags, [
+				{ name: 'attack', color: 1, secondaryColor: 2, x: 10, y: 11 },
+				{ name: 'rally', color: 5, secondaryColor: 5, x: 20, y: 21 }
+			]);
+			assert.strictEqual(build([], { flags: '' }).map.flags, undefined);
+		});
+	});
+
+	// Dropped piles used to be counted as an unknown type and left behind.
+	it('keeps a dropped pile as the editor writes one', function () {
+		// Shape taken verbatim from a live season E26S24 snapshot.
+		const result = build([
+			{ _id: '6ab96725a78afb19e4127fd2', type: 'energy', x: 11, y: 37, room: 'E26S24', energy: 747, resourceType: 'energy' },
+			{ _id: 'b', type: 'energy', x: 12, y: 37, room: 'E26S24', H: 300, resourceType: 'H' },
+			{ _id: 'c', type: 'energy', x: 13, y: 37, room: 'E26S24', energy: 0, resourceType: 'energy' }
+		]);
+		assert.deepStrictEqual(result.skipped, {});
+		assert.deepStrictEqual(result.map.structures, [
+			{ type: 'energy', x: 11, y: 37, resourceType: 'energy', amount: 747, id: '6ab96725a78afb19e4127fd2' },
+			{ type: 'energy', x: 12, y: 37, resourceType: 'H', amount: 300, id: 'b' }
+		]);
+	});
+
+	// Ruins used to fall through to the unknown-type branch and vanish, so an
+	// imported raided stronghold came in with none of its rubble or loot.
+	it('keeps a ruin with its loot, what it was, and rebased clocks', function () {
+		// Shape taken verbatim from a live season E26S24 snapshot (tick 802888).
+		const result = build([{
+			_id: '6ab96336ad3e031a969d1d0c', type: 'ruin', room: 'E26S24', x: 12, y: 37,
+			structure: { id: '6ab84110c7926d4a99b9cb9b', type: 'rampart', hits: 0, hitsMax: 300000000, user: 'inv' },
+			destroyTime: 799551, decayTime: 843638, user: 'inv', store: { energy: 40, H: 0 }
+		}], { gameTime: 802888 });
+		assert.deepStrictEqual(result.skipped, {});
+		assert.deepStrictEqual(result.map.structures, [{
+			type: 'ruin', x: 12, y: 37, id: '6ab96336ad3e031a969d1d0c', owner: 'invader',
+			structure: { id: '6ab84110c7926d4a99b9cb9b', type: 'rampart', hits: 0, hitsMax: 300000000 },
+			store: { energy: 40 },
+			ticks: { decayTime: 40750, destroyTime: -3337 }
+		}]);
+	});
+
+	it('drops a ruin like a structure: unresolvable owner, or mine without --structures', function () {
+		const ruin = function (user) {
+			return { type: 'ruin', x: 1, y: 1, user: user, structure: { id: 'a', type: 'spawn', hits: 0, hitsMax: 5000, user: user }, decayTime: 10, destroyTime: 5, store: {} };
+		};
+		assert.deepStrictEqual(build([ruin('nobody')], { gameTime: 5 }).map.structures, []);
+		assert.deepStrictEqual(build([ruin('mine')], { gameTime: 5, includeMyStructures: false }).map.structures, []);
+		assert.strictEqual(build([ruin('mine')], { gameTime: 5 }).map.structures.length, 1);
+	});
+
+	it("keeps another player's ruin under their label, and an unowned one bare", function () {
+		const result = build([
+			{ type: 'ruin', x: 1, y: 1, user: 'p1', structure: { id: 'a', type: 'spawn', hits: 0, hitsMax: 5000, user: 'p1' }, decayTime: 10, destroyTime: 5, store: {} },
+			{ type: 'ruin', x: 2, y: 1, structure: { id: 'b', type: 'road', hits: 0, hitsMax: 5000 }, decayTime: 10, destroyTime: 5, store: {} }
+		], { gameTime: 5, users: { almaravarion: { id: 'p1', username: 'Almaravarion' } } });
+		assert.strictEqual(result.map.structures[0].owner, 'almaravarion');
+		assert.strictEqual(result.map.structures[0].structure.owner, undefined, 'the loader takes it from the ruin');
+		assert.deepStrictEqual(result.map.users, { almaravarion: { id: 'p1', username: 'Almaravarion' } });
+		assert.strictEqual(result.map.structures[1].owner, undefined);
+		assert.strictEqual(result.map.structures[1].structure.owner, undefined);
+	});
+
 	// No source tick means no reference point, so an absolute deadline is
 	// meaningless — drop it and let the loader seed a full fresh lifetime.
 	it('drops an absolute decay deadline when the source tick is unknown', function () {

@@ -10,7 +10,7 @@ import {
 	BUILTIN_OWNERS, OWNABLE, STRUCTURE_HITS, allResources, labelFor, isClaimed,
 } from './gameData';
 import { ObjectIcon } from './ObjectIcon';
-import { FLAG_COLORS, fieldsFor, handledKeys, ticksValue, withTicks } from './objectFields';
+import { FLAG_COLORS, fieldValue, fieldsFor, handledKeys, ticksValue, withField, withTicks } from './objectFields';
 import { hasStore } from './storeRules';
 import { bodyToSegments, segmentsToBody } from './bodyModel';
 import { HitsField, NumberField, SelectField, SliderField, TextField, ToggleField, FieldShell } from './controls';
@@ -53,12 +53,7 @@ export function PropertiesPanel(props: Props) {
 }
 
 function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDelete, onDuplicate }: Props & { object: EditableObject }) {
-	const set = (key: string, value: unknown) => onChangeObject((current) => {
-		const next = { ...current };
-		if (value === null || value === undefined) delete next[key];
-		else next[key] = value;
-		return next;
-	}, key);
+	const set = (key: string, value: unknown) => onChangeObject((current) => withField(current, key, value, { mods, rcl }), key);
 
 	const fields = fieldsFor(object, { mods, rcl });
 	const ownerOptions = BUILTIN_OWNERS.concat(
@@ -66,7 +61,8 @@ function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDe
 			.map((label) => ({ value: label, label: `${label} (player)` })),
 	);
 	const ownerValue = object.owner == null
-		? (object.type === 'controller' ? 'unclaimed' : 'me')
+		// The loader leaves an ownerless ruin ownerless (a road's, a wall's).
+		? (object.type === 'controller' || object.type === 'ruin' ? 'unclaimed' : 'me')
 		: (object.owner === 'neutral' ? 'unclaimed' : object.owner);
 
 	const hitsMax = Number(object.hitsMax) || STRUCTURE_HITS[object.type] || 0;
@@ -115,20 +111,20 @@ function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDe
 						switch (field.kind) {
 							case 'text':
 								return <TextField key={field.key} label={field.label} hint={field.hint}
-									value={String(object[field.key] ?? '')} onChange={(value) => set(field.key, value)} />;
+									value={String(fieldValue(object, field.key) ?? '')} onChange={(value) => set(field.key, value)} />;
 							case 'number':
 								return <NumberField key={field.key} label={field.label} hint={field.hint} suffix={field.suffix}
 									min={field.min} max={field.max} step={field.step} allowEmpty
-									value={typeof object[field.key] === 'number' ? (object[field.key] as number) : undefined}
+									value={typeof fieldValue(object, field.key) === 'number' ? (fieldValue(object, field.key) as number) : undefined}
 									onChange={(value) => set(field.key, value)} />;
 							case 'slider':
 								return <SliderField key={field.key} label={field.label} hint={field.hint}
 									min={field.min} max={field.max} step={field.step}
-									value={Number(object[field.key]) || 0}
+									value={Number(fieldValue(object, field.key)) || 0}
 									onChange={(value) => set(field.key, value)} />;
 							case 'select':
 								return <SelectField key={field.key} label={field.label} hint={field.hint} options={field.options}
-									value={String(object[field.key] ?? field.options[0]?.value ?? '')}
+									value={String(fieldValue(object, field.key) ?? field.fallback ?? field.options[0]?.value ?? '')}
 									onChange={(value) => {
 										// Numeric selects (density) must not be written back as strings.
 										const numeric = field.options.every((option) => /^-?\d+$/.test(option.value));
@@ -136,7 +132,7 @@ function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDe
 									}} />;
 							case 'toggle':
 								return <ToggleField key={field.key} label={field.label} hint={field.hint}
-									value={object[field.key] !== false}
+									value={fieldValue(object, field.key) !== false}
 									onChange={(value) => set(field.key, value)} />;
 							case 'ticks':
 								return <NumberField key={field.key} label={field.label} hint={field.hint} suffix="ticks"
@@ -144,7 +140,7 @@ function ObjectProperties({ object, rcl, mods, ownerLabels, onChangeObject, onDe
 									onChange={(value) => onChangeObject((current) => withTicks(current, field.key, value), field.key)} />;
 							case 'position':
 								return <PositionField key={field.key} label={field.label}
-									value={object[field.key] as { room?: string; x?: number; y?: number } | undefined}
+									value={fieldValue(object, field.key) as { room?: string; x?: number; y?: number } | undefined}
 									onChange={(value) => set(field.key, value)} />;
 						}
 					})}

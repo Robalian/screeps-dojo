@@ -84,14 +84,14 @@ describe('loose objects', () => {
 			structures: [
 				{ type: 'energy', x: 5, y: 5, resourceType: 'energy', amount: 800 },
 				{ type: 'tombstone', x: 6, y: 5, store: { energy: 20 }, ticks: { decayTime: 40 } },
-				{ type: 'ruin', x: 7, y: 5, structureType: 'storage', store: {} },
+				{ type: 'ruin', x: 7, y: 5, structure: { type: 'storage', hits: 0, hitsMax: 10000 }, store: {} },
 			],
 		}));
 		const output = JSON.parse(serializeEditableMap(parsed.map!));
 		expect(output.structures).toHaveLength(3);
 		expect(output.structures[0]).toMatchObject({ type: 'energy', resourceType: 'energy', amount: 800 });
 		expect(output.structures[1]).toMatchObject({ type: 'tombstone', ticks: { decayTime: 40 } });
-		expect(output.structures[2]).toMatchObject({ type: 'ruin', structureType: 'storage' });
+		expect(output.structures[2]).toMatchObject({ type: 'ruin', structure: { type: 'storage', hits: 0, hitsMax: 10000 } });
 	});
 
 	it('gives a new dropped pile the amount/resourceType the loader converts', () => {

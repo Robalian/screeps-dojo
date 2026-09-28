@@ -88,29 +88,43 @@ export function parseEditableMap(input: string | unknown): { map: EditableMap | 
 			if (!positioned(value) || typeof value.type !== 'string') continue;
 			const object = { ...value } as EditableObject;
 			if ((object.type === 'source' || object.type === 'mineral') && !object.id) object.id = randomObjectId();
+			// The editor once wrote a ruin's "was a" as a top-level structureType,
+			// which the engine never reads; move it to where it does.
+			if (object.type === 'ruin' && typeof object.structureType === 'string') {
+				const structure = { ...(object.structure as Record<string, unknown> | undefined) };
+				if (!structure.type) structure.type = object.structureType;
+				object.structure = structure;
+				delete object.structureType;
+			}
+			// The editor once wrote a deposit's cooldown as `cooldown`, which the
+			// engine never reads; it is the `cooldownTime` clock.
+			if (object.type === 'deposit' && typeof object.cooldown === 'number') {
+				if (object.cooldown > 0) object.ticks = { cooldownTime: object.cooldown, ...(object.ticks as Record<string, unknown> | undefined) };
+				delete object.cooldown;
+			}
 			structures.push(object);
 		}
 		for (const value of (Array.isArray(source.sources) ? source.sources : [])) {
 			if (!positioned(value)) continue;
-			const object: EditableObject = { type: 'source', x: value.x, y: value.y, id: String(value.id || randomObjectId()) };
-			if (value.energy != null) object.energy = value.energy;
-			if (value.energyCapacity != null) object.energyCapacity = value.energyCapacity;
-			structures.push(object);
+			// Every field is kept, not just the ones the panel edits: anything the
+			// editor drops is lost on the next save, and shows the map as changed
+			// the moment it is opened.
+			structures.push({ ...value, type: 'source', x: value.x, y: value.y, id: String(value.id || randomObjectId()) } as EditableObject);
 		}
 		for (const value of (Array.isArray(source.minerals) ? source.minerals : [])) {
 			if (!positioned(value)) continue;
-			const object: EditableObject = {
+			structures.push({
+				...value,
 				type: 'mineral', x: value.x, y: value.y, id: String(value.id || randomObjectId()),
 				mineralType: typeof value.mineralType === 'string' ? value.mineralType : 'H',
 				density: typeof value.density === 'number' ? value.density : 3,
-			};
-			if (value.mineralAmount != null) object.mineralAmount = value.mineralAmount;
-			structures.push(object);
+			} as EditableObject);
 		}
 		if (positioned(source.controller) && !structures.some((object) => object.type === 'controller')) {
-			const controller: EditableObject = { type: 'controller', x: source.controller.x, y: source.controller.y };
+			// isPowerEnabled and friends ride along (see sources above).
+			const controller = { ...source.controller, type: 'controller', x: source.controller.x, y: source.controller.y } as EditableObject;
 			if (source.controller.owner != null) controller.owner = String(source.controller.owner);
-			if (typeof source.controller.level === 'number') controller.level = source.controller.level;
+			else delete controller.owner;
 			structures.push(controller);
 		}
 		// Creeps become ordinary tile objects with type 'creep'. They were
@@ -149,8 +163,7 @@ export function serializeEditableMap(map: EditableMap): string {
 		if (object.type === 'source') {
 			if (!object.id) object.id = randomObjectId();
 			const source: Record<string, unknown> = { x: object.x, y: object.y, id: object.id };
-			if (object.energy != null) source.energy = object.energy;
-			if (object.energyCapacity != null) source.energyCapacity = object.energyCapacity;
+			for (const key of Object.keys(object)) if (key !== 'type' && object[key] != null) source[key] = object[key];
 			sources.push(source);
 		} else if (object.type === 'mineral') {
 			if (!object.id) object.id = randomObjectId();
@@ -158,7 +171,7 @@ export function serializeEditableMap(map: EditableMap): string {
 				x: object.x, y: object.y, mineralType: object.mineralType || 'H',
 				density: object.density || 3, id: object.id,
 			};
-			if (object.mineralAmount != null) mineral.mineralAmount = object.mineralAmount;
+			for (const key of Object.keys(object)) if (!(key in mineral) && key !== 'type' && object[key] != null) mineral[key] = object[key];
 			minerals.push(mineral);
 		} else if (object.type === 'controller') {
 			controller = { x: object.x, y: object.y };
@@ -285,8 +298,9 @@ export function makeEditableObject(
 	}
 	if (type === 'energy') { object.resourceType = 'energy'; object.amount = 500; }
 	if (type === 'tombstone') { object.store = {}; object.ticks = { decayTime: 100 }; }
-	if (type === 'ruin') { object.store = {}; object.ticks = { decayTime: 500 }; }
-	if (type === 'deposit') { object.depositType = 'silicon'; object.cooldown = 0; }
+	// What the ruin was lives in `structure`, as the engine keeps it.
+	if (type === 'ruin') { object.store = {}; object.ticks = { decayTime: 500 }; object.structure = { type: 'spawn', hits: 0, hitsMax: STRUCTURE_HITS.spawn }; }
+	if (type === 'deposit') { object.depositType = 'silicon'; object.harvested = 0; }
 	if (type === 'portal') object.destination = { room: 'W1N1', x: 25, y: 25 };
 	if (type === 'constructionSite') { object.structureType = 'extension'; object.progress = 0; object.progressTotal = 3000; object.owner = 'me'; }
 	if (type === 'invaderCore') { object.owner = 'invader'; object.level = 1; }

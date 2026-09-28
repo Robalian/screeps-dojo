@@ -3,6 +3,8 @@
 // Pure transform: raw engine room-object docs -> dojo map.json.
 // Classification/filtering rules live here; no network, no server deps.
 
+const { parseFlags } = require('../mapFormat');
+
 // Owner tags that are NOT another player: my bot and the two NPC users. Every
 // other non-null tag from the classifier is a player LABEL (see
 // src/import/ownerLabels.js), which a scenario's settings.json can assign a bot
@@ -19,7 +21,9 @@ const OWNER_TAGS = { me: 'me', invader: 'invader', sourceKeeper: 'sourceKeeper' 
 const KNOWN_STRUCTURES = new Set([
 	'spawn', 'extension', 'tower', 'storage', 'terminal', 'link', 'lab',
 	'factory', 'observer', 'powerSpawn', 'nuker', 'rampart', 'constructedWall',
-	'road', 'container', 'extractor', 'keeperLair', 'invaderCore', 'powerBank'
+	'road', 'container', 'extractor', 'keeperLair', 'invaderCore', 'powerBank',
+	// Not structures, but plain room objects the loader places the same way.
+	'constructionSite', 'deposit', 'portal', 'tombstone', 'nuke'
 ]);
 
 // Absolute-tick decay deadlines that have to be REBASED onto the sim clock,
@@ -36,6 +40,9 @@ const KNOWN_STRUCTURES = new Set([
 const ABSOLUTE_DECAY_FIELDS = {
 	powerBank: 'decayTime',
 	deposit: 'decayTime',
+	// A portal with no decayTime is permanent; one that has one closes then.
+	portal: 'decayTime',
+	tombstone: 'decayTime',
 	road: 'nextDecayTime',
 	container: 'nextDecayTime',
 	rampart: 'nextDecayTime'
@@ -46,7 +53,11 @@ const ABSOLUTE_DECAY_FIELDS = {
 // the map's relative `ticks` table, which the loader turns back into absolute
 // deadlines against the sim clock. A clock already in the past is dropped —
 // the engine treats a missing one as "ready".
-const ABSOLUTE_TICK_FIELDS = ['cooldownTime', 'deployTime', 'nextExpandTime', 'nextSpawnTime'];
+const ABSOLUTE_TICK_FIELDS = ['cooldownTime', 'deployTime', 'nextExpandTime', 'nextSpawnTime', 'landTime'];
+
+// Absolute ticks that are in the PAST by definition (when a creep died, when a
+// structure fell). Rebased the same way but kept negative: "3337 ticks ago".
+const ABSOLUTE_PAST_FIELDS = ['deathTime', 'destroyTime'];
 
 // Engine PWR_* ids -> names; pinned to ui/src/game/powerInfo.ts by a test.
 const POWER_KEYS_BY_ID = [null, 'GENERATE_OPS', 'OPERATE_SPAWN', 'OPERATE_TOWER', 'OPERATE_STORAGE', 'OPERATE_LAB',
@@ -175,6 +186,16 @@ function roomToMap(input) {
 		creeps: []
 	};
 	const skipped = {};
+	// Flags are not room objects: the live feed sends this account's own flags
+	// for the room as the engine's packed string (a caller may also pass the
+	// parsed list). A malformed entry is counted, not fatal.
+	if (typeof input.flags === 'string' && input.flags) {
+		for (const entry of input.flags.split('|').filter(Boolean)) {
+			try { map.flags = (map.flags || []).concat(parseFlags(entry)); } catch (error) { skipped.malformedFlag = (skipped.malformedFlag || 0) + 1; }
+		}
+	} else if (Array.isArray(input.flags) && input.flags.length) {
+		map.flags = input.flags.slice();
+	}
 
 	for (const object of objects) {
 		const tag = object.user ? classifyOwner(object.user) : 'neutral';
@@ -285,6 +306,52 @@ function roomToMap(input) {
 			map.powerCreeps.push(powerCreep);
 			continue;
 		}
+		if (object.type === 'energy') {
+			// A dropped pile, of ANY resource despite the type name. The engine
+			// keeps its size in a field named after the resource (`energy: 747`,
+			// `H: 300`; engine processor/intents/_create-energy.js). The map
+			// writes the editor's `amount` instead, which the loader turns back.
+			const resourceType = object.resourceType || 'energy';
+			const amount = object[resourceType];
+			if (!(typeof amount === 'number' && amount > 0)) continue;
+			const pile = { type: 'energy', x: object.x, y: object.y, resourceType: resourceType, amount: amount };
+			if (object._id) pile.id = object._id;
+			map.structures.push(pile);
+			continue;
+		}
+		if (object.type === 'ruin') {
+			// A ruin is what a destroyed structure leaves behind: its loot (`store`)
+			// and a record of what it was (`structure`). Both of its clocks are
+			// absolute ticks on the SOURCE server — rebase them like any other,
+			// because the engine deletes a ruin whose decayTime is missing or
+			// already passed on its very first tick. The nested structure's owner
+			// is not written: the engine always makes it the ruin's own user, and
+			// the loader copies it from there (dojoWorld fillRuinStructure).
+			// Same owner rules as any structure (see below).
+			if (object.user && tag === null) continue;
+			if (tag === 'me' && !includeMyStructures) continue;
+			const ruin = { type: 'ruin', x: object.x, y: object.y };
+			if (object._id) ruin.id = object._id;
+			if (object.user && tag !== null) {
+				ruin.owner = tag;
+				if (!OWNER_TAGS[tag]) usedLabels.add(tag);
+			}
+			const was = object.structure;
+			if (was && typeof was === 'object') {
+				ruin.structure = { id: was.id, type: was.type, hits: was.hits, hitsMax: was.hitsMax };
+			}
+			const store = cleanStore(object.store);
+			ruin.store = store || {};
+			if (typeof gameTime === 'number') {
+				const ticks = {};
+				if (typeof object.decayTime === 'number') ticks.decayTime = Math.max(1, object.decayTime - gameTime);
+				// In the past by definition, so this one stays negative.
+				if (typeof object.destroyTime === 'number') ticks.destroyTime = object.destroyTime - gameTime;
+				if (Object.keys(ticks).length) ruin.ticks = ticks;
+			}
+			map.structures.push(ruin);
+			continue;
+		}
 		if (known.has(object.type)) {
 			// Keep mine / npc / neutral / another player's; drop only an owner we
 			// could not resolve to anything.
@@ -306,7 +373,15 @@ function roomToMap(input) {
 				if (key === decayField) continue;   // rebased below, never copied raw
 				if (key === 'effects') continue;    // rebased below
 				if (ABSOLUTE_TICK_FIELDS.indexOf(key) !== -1) continue;
+				if (ABSOLUTE_PAST_FIELDS.indexOf(key) !== -1) continue;
 				entry[key] = object[key];
+			}
+			if (typeof gameTime === 'number') {
+				for (const field of ABSOLUTE_PAST_FIELDS) {
+					if (typeof object[field] !== 'number') continue;
+					entry.ticks = entry.ticks || {};
+					entry.ticks[field] = object[field] - gameTime;
+				}
 			}
 			const effects = rebaseEffects(object.effects, gameTime);
 			if (effects) entry.effects = effects;

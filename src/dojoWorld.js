@@ -56,7 +56,16 @@ const DECAY_CLOCKS = {
 	container: { field: 'nextDecayTime', constant: 'CONTAINER_DECAY_TIME' },
 	rampart: { field: 'nextDecayTime', constant: 'RAMPART_DECAY_TIME' },
 	powerBank: { field: 'decayTime', constant: 'POWER_BANK_DECAY' },
-	deposit: { field: 'decayTime', constant: 'DEPOSIT_DECAY_TIME' }
+	deposit: { field: 'decayTime', constant: 'DEPOSIT_DECAY_TIME' },
+	// The ruin tick deletes a ruin with no decayTime on sight.
+	ruin: { field: 'decayTime', constant: 'RUIN_DECAY' },
+	// Same for a tombstone; its default lifetime depends on the body, so
+	// fillTombstone seeds it rather than a flat constant.
+	tombstone: { field: 'decayTime', constant: null },
+	// A portal with no decayTime is permanent, so none is ever seeded.
+	portal: { field: 'decayTime', constant: null },
+	// A nuke's clock counts down to impact, not decay.
+	nuke: { field: 'landTime', constant: 'NUKE_LAND_TIME' }
 };
 
 // Regeneration clocks for the resource nodes, same absolute-tick idea. Both
@@ -666,8 +675,10 @@ class DojoWorld {
 		return this._codeTimestamp;
 	}
 
+	// undefined means "no owner". The editor's "unclaimed / neutral" choice is
+	// exactly that — never a user by that name.
 	resolveOwner(owner) {
-		if (owner === undefined || owner === null) return undefined;
+		if (owner === undefined || owner === null || owner === 'neutral' || owner === 'unclaimed') return undefined;
 		if (owner === 'me') {
 			if (!this.botUserId) throw new Error("owner 'me' used before the main bot was added");
 			return this.botUserId;
@@ -1079,7 +1090,16 @@ class DojoWorld {
 		if (doc.id !== undefined) { doc._id = doc.id; delete doc.id; }
 		const owner = doc.user !== undefined ? doc.user : doc.owner;
 		delete doc.owner;
-		if (owner !== undefined) doc.user = this.resolveOwner(owner);
+		const userId = this.resolveOwner(owner);
+		if (userId !== undefined) doc.user = userId;
+		if (type === 'ruin') this.fillRuinStructure(doc);
+		if (type === 'tombstone') this.fillTombstone(doc);
+		// A deposit's harvest cooldown is the absolute `cooldownTime`; the engine
+		// never reads a `cooldown` field, which the editor used to write.
+		if (type === 'deposit' && doc.cooldown !== undefined) {
+			if (doc.cooldown > 0) doc.ticks = Object.assign({ cooldownTime: doc.cooldown }, doc.ticks);
+			delete doc.cooldown;
+		}
 		// A dropped pile stores its size in a field NAMED after the resource
 		// ('energy: 200'); the runtime's `.amount` getter reads o[o.resourceType]
 		// (engine game/resources.js), so a literal `amount` field is ignored and
@@ -1168,8 +1188,12 @@ class DojoWorld {
 	async buildUpdate(doc, changes) {
 		const hasOperators = Object.keys(changes).some(function (key) { return key.charAt(0) === '$'; });
 		const fields = Object.assign({}, hasOperators ? changes.$set : changes);
+		// Giving an object no owner ('unclaimed', null) removes its user.
+		let unsetUser = false;
 		if (fields.owner !== undefined) {
-			fields.user = this.resolveOwner(fields.owner);
+			const userId = this.resolveOwner(fields.owner);
+			if (userId === undefined) unsetUser = true;
+			else fields.user = userId;
 			delete fields.owner;
 		}
 		if (fields.amount !== undefined) {
@@ -1177,8 +1201,9 @@ class DojoWorld {
 			delete fields.amount;
 		}
 		await this.applyClocks(doc.type, fields, false);
-		if (!hasOperators) return { $set: fields };
-		return Object.assign({}, changes, Object.keys(fields).length ? { $set: fields } : {});
+		const unset = unsetUser ? { $unset: Object.assign({}, hasOperators && changes.$unset, { user: true }) } : {};
+		if (!hasOperators) return Object.assign({ $set: fields }, unset);
+		return Object.assign({}, changes, Object.keys(fields).length ? { $set: fields } : {}, unset);
 	}
 
 	// Deletes objects and wakes the rooms they were in: the engine has to run a
@@ -1197,6 +1222,44 @@ class DojoWorld {
 		for (const doc of matched) if (doc.room) rooms.add(doc.room);
 		for (const room of rooms) await this.activateRoom(room);
 		return matched.length;
+	}
+
+	// A ruin carries a record of the structure it was (engine processor
+	// structures/_destroy.js): { id, type, hits: 0, hitsMax, user }. The runtime
+	// reads it for ruin.structure and toString(), so a ruin without one crashes
+	// any bot that looks. The engine always gives the record the ruin's own
+	// user, and the runtime resolves it BY ID — so it is taken from the ruin
+	// (already a sim user id here), never from a label in the map.
+	fillRuinStructure(doc) {
+		const structure = Object.assign({}, doc.structure);
+		// Maps from before the editor wrote `structure.type` kept it top-level.
+		// No record at all: a wall — the editor's "was a" shows the same default.
+		if (!structure.type) structure.type = doc.structureType || 'constructedWall';
+		delete doc.structureType;
+		if (typeof structure.hits !== 'number') structure.hits = 0;
+		delete structure.owner;
+		delete structure.user;
+		if (doc.user !== undefined) structure.user = doc.user;
+		doc.structure = structure;
+		if (!doc.store) doc.store = {};
+	}
+
+	// A tombstone's `.creep` getter only exists when it names the creep that
+	// died (engine creeps/_die.js: creepId, creepName, creepBody, ...) or a
+	// power creep (powerCreepId, ...). Without either, a bot reading
+	// tombstone.creep gets undefined where the game always gives it an object.
+	// Its lifetime, when none is given, is the engine's own: 5 ticks per part.
+	fillTombstone(doc) {
+		if (!doc.creepId && !doc.powerCreepId) doc.creepId = doc.creepName || 'tombstone';
+		if (!doc.powerCreepId && !Array.isArray(doc.creepBody)) doc.creepBody = [];
+		if (!doc.store) doc.store = {};
+		const hasClock = doc.ticksToDecay !== undefined || typeof doc.decayTime === 'number'
+			|| (doc.ticks && typeof doc.ticks.decayTime === 'number');
+		if (!hasClock) {
+			doc.ticksToDecay = doc.powerCreepId
+				? this.engineConstant('TOMBSTONE_DECAY_POWER_CREEP')
+				: this.engineConstant('TOMBSTONE_DECAY_PER_PART') * Math.max(1, doc.creepBody.length);
+		}
 	}
 
 	// Converts the relative clocks a scenario thinks in (`ticksToDecay`,
@@ -1246,7 +1309,7 @@ class DojoWorld {
 		if (decay) {
 			if (doc.ticksToDecay !== undefined) {
 				doc[decay.field] = (await now()) + doc.ticksToDecay;
-			} else if (seed && (doc[decay.field] === undefined || doc[decay.field] === null)) {
+			} else if (seed && decay.constant && (doc[decay.field] === undefined || doc[decay.field] === null)) {
 				doc[decay.field] = (await now()) + this.engineConstant(decay.constant);
 			}
 		}

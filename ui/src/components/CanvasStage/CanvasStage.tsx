@@ -3,6 +3,7 @@ import type { Recording, StageLayout, FrameObject } from '../../api/types';
 import { StaticLayers } from '../../canvas/caches';
 import { CreepRenderer } from '../../canvas/creeps';
 import { drawFrame } from '../../canvas/drawFrame';
+import { droppedPile } from '../../canvas/dynamic';
 import { useRenderFonts } from '../../hooks/useRenderFonts';
 import { useTerrainTextures } from '../../hooks/useTerrainTextures';
 import { useModImages } from '../../hooks/useModImages';
@@ -26,8 +27,8 @@ function objectLabel(o: FrameObject): string {
   const base = TYPE_LABELS[o.type] || (o.type ? o.type[0].toUpperCase() + o.type.slice(1) : 'Object');
   if ((o.type === 'creep' || o.type === 'powerCreep') && o.name) return base + ' · ' + o.name;
   if (o.type === 'energy' || o.type === 'resource') {
-    const amt = o.store ? Object.values(o.store).reduce((a, b) => a + b, 0) : undefined;
-    return amt !== undefined ? base + ' · ' + amt : base;
+    const pile = droppedPile(o);
+    return base + ' · ' + pile.amount + (pile.resourceType === 'energy' ? '' : ' ' + pile.resourceType);
   }
   return base;
 }

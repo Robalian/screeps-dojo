@@ -189,7 +189,7 @@ async function main() {
 			registry: ownerRegistry
 		});
 		const result = roomToMap({
-			roomName: roomName, objects: room.objects,
+			roomName: roomName, objects: room.objects, flags: room.flags,
 			terrainRows: room.terrainRows, classifyOwner: owners.classifyOwner,
 			// label -> { id, username }; roomToMap keeps the ones this room uses.
 			users: owners.users,

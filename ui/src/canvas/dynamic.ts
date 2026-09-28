@@ -262,6 +262,66 @@ export function drawTombstone(ctx: CanvasContext, cx: number, cy: number): void 
 	ctx.restore();
 }
 
+// Ruin: a low heap of grey rubble, with a resource dot on top while it still
+// holds loot (a raided stronghold leaves ruins worth hauling).
+export function drawRuin(ctx: CanvasContext, object: FrameObject, cx: number, cy: number): void {
+	ctx.save();
+	ctx.globalAlpha = 0.8;
+	ctx.fillStyle = RENDER_COLORS.ruin.rubble;
+	ctx.strokeStyle = RENDER_COLORS.ruin.outline;
+	ctx.lineWidth = 0.04;
+	ctx.beginPath();
+	ctx.moveTo(cx - 0.34, cy + 0.22);
+	ctx.lineTo(cx - 0.24, cy - 0.04);
+	ctx.lineTo(cx - 0.08, cy + 0.02);
+	ctx.lineTo(cx + 0.02, cy - 0.2);
+	ctx.lineTo(cx + 0.18, cy - 0.06);
+	ctx.lineTo(cx + 0.32, cy - 0.1);
+	ctx.lineTo(cx + 0.34, cy + 0.22);
+	ctx.closePath();
+	ctx.fill(); ctx.stroke();
+	ctx.restore();
+	const store = (object.store as Record<string, number> | undefined) || {};
+	let amount = 0, top = 'energy', topAmount = 0;
+	for (const resourceType of Object.keys(store)) {
+		amount += store[resourceType];
+		if (store[resourceType] > topAmount) { top = resourceType; topAmount = store[resourceType]; }
+	}
+	if (amount > 0) drawDroppedResource(ctx, cx, cy + 0.05, amount, top);
+}
+
+// Portal: a cyan swirl of rings.
+export function drawPortal(ctx: CanvasContext, cx: number, cy: number): void {
+	circle(ctx, cx, cy, { radius: 0.45, fill: RENDER_COLORS.portal.glow, opacity: 0.35 });
+	circle(ctx, cx, cy, { radius: 0.34, stroke: RENDER_COLORS.portal.ring, strokeWidth: 0.07, opacity: 0.9 });
+	circle(ctx, cx, cy, { radius: 0.17, stroke: RENDER_COLORS.portal.ring, strokeWidth: 0.05, opacity: 0.7 });
+}
+
+// Incoming nuke: its 5x5 blast area (NUKE_DAMAGE range 2) and a target mark.
+export function drawNuke(ctx: CanvasContext, cx: number, cy: number): void {
+	ctx.save();
+	ctx.globalAlpha = 0.18;
+	ctx.fillStyle = RENDER_COLORS.nuke.area;
+	ctx.fillRect(cx - 2.5, cy - 2.5, 5, 5);
+	ctx.restore();
+	circle(ctx, cx, cy, { radius: 0.4, stroke: RENDER_COLORS.nuke.mark, strokeWidth: 0.08 });
+	circle(ctx, cx, cy, { radius: 0.12, fill: RENDER_COLORS.nuke.mark });
+}
+
+// What a dropped pile holds. The engine keeps the size in a field named after
+// the resource (`energy: 747`, `H: 300`) — there is no `store` on one. A map
+// (editor or import) writes `amount` instead, which the loader converts. A
+// `store` is still read as a fallback for frames that carry one.
+export function droppedPile(object: FrameObject): { resourceType: string; amount: number } {
+	const resourceType = typeof object.resourceType === 'string' ? object.resourceType : 'energy';
+	if (typeof object[resourceType] === 'number') return { resourceType, amount: object[resourceType] as number };
+	if (typeof object.amount === 'number') return { resourceType, amount: object.amount };
+	const store = (object.store as Record<string, number> | undefined) || {};
+	let amount = 0;
+	for (const key of Object.keys(store)) amount += Number(store[key]) || 0;
+	return { resourceType: typeof object.resourceType === 'string' ? resourceType : Object.keys(store)[0] || 'energy', amount };
+}
+
 // Dropped resource dot.
 export function drawDroppedResource(ctx: CanvasContext, cx: number, cy: number, amount: number, resourceType: string): void {
 	const radius = 0.15 + 0.15 * Math.min(1, amount / 1000);

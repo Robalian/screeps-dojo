@@ -117,6 +117,18 @@ export const RENDER_COLORS = {
 		outline: WHITE,
 		mark: BLACK,
 	},
+	ruin: {
+		rubble: '#5a5a5a',
+		outline: '#2a2a2a',
+	},
+	portal: {
+		glow: '#2a9df4',
+		ring: '#9fe3ff',
+	},
+	nuke: {
+		area: '#ff2020',
+		mark: '#ff4040',
+	},
 	roomName: WHITE,
 	// say() bubble: a near-white panel with a black outline, so it reads against
 	// both terrain and creeps. A public say (say(msg, true)) swaps in a pink

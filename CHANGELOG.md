@@ -5,6 +5,47 @@ All notable changes to Screeps Dojo. Format follows
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features and
 behaviour changes, patch = fixes).
 
+## [Unreleased]
+
+Importing a live room now brings in everything in it that the dojo can run, not
+just its structures, creeps and resource nodes.
+
+### Added
+
+- Room import keeps ruins, dropped resources, tombstones, construction sites, deposits, portals,
+  in-flight nukes and your flags. Every absolute clock on them (decay, cooldown, landing, death,
+  destruction) is rebased onto the sim's own tick.
+- Replays draw ruins (rubble, with a loot dot while they hold something), portals and incoming
+  nukes (with their 5×5 blast area). All three were known types with no drawing, so they were invisible.
+- The inspector shows what a ruin was, when it decays and how long ago it fell.
+- The map editor shows an imported nuke's landing clock and launch room, and a deposit's
+  "harvested so far".
+
+### Fixed
+
+- Dropped resources drew at minimum size and as energy whatever they held, and the hover label had
+  no amount: the renderer read `store`, which a dropped pile does not have.
+- A ruin's "was a" in the map editor edited a top-level `structureType` the engine never reads, and
+  offered only buildable types. It now edits `structure.type` and offers every structure that can
+  leave a ruin (invader cores and power banks included). Old maps are moved over on open and on load.
+- A ruin or tombstone loaded without the record the runtime expects (the structure it was, the creep
+  that died) broke bot code reading `ruin.structure` or `tombstone.creep`; the loader now fills it in,
+  with the engine's own default lifetime when the map gives none.
+- A deposit's "harvest cooldown" was written to `cooldown`, which the engine ignores; it is now the
+  `cooldownTime` clock. Old maps are converted on open and on load.
+- A portal's "decays in" was ignored at load.
+- Choosing "unclaimed / neutral" as an owner made the object belong to a user literally named
+  `unclaimed`, both when loading a map and in `updateObject`. It now means no owner.
+- Opening a map in the editor dropped any controller, source or mineral field it had no control for,
+  such as a power-enabled controller's `isPowerEnabled`. The map showed as edited as soon as it was
+  opened, and saving it lost the field.
+
+### Still skipped on import, on purpose
+
+- A creep that is still spawning (its spawn already represents it), an object whose owner cannot be
+  resolved, and a mod's object types when the scenario does not select that mod. The import log
+  lists all of them.
+
 ## [0.16.0] — 2026-09-27
 
 Power creeps come to the dojo. A scenario's `power-creeps.json` gives the bot its

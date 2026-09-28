@@ -114,6 +114,19 @@ export const TYPE_SCHEMA: Record<string, TypeSchema> = {
   tombstone: {
     stats: [{ label: 'was', keys: ['powerCreepName'], value: (o) => tombstoneTitle(o) }],
   },
+  ruin: {
+    stats: [
+      { label: 'was', keys: ['structure'], value: (o) => {
+        const was = o.structure as { type?: string } | undefined;
+        return was && was.type ? was.type : null;
+      } },
+      { label: 'decays in', keys: ['decayTime'], value: (o, gameTime) => ticksUntil(o, 'decayTime', gameTime) },
+      { label: 'destroyed', keys: ['destroyTime'], value: (o, gameTime) => {
+        const t = num(o, 'destroyTime');
+        return t === undefined || typeof gameTime !== 'number' ? null : Math.max(0, gameTime - t) + ' ticks ago';
+      } },
+    ],
+  },
   // A bank is two numbers: how much power is in it, and how long you have. The
   // deadline is `decayTime` here, not the `nextDecayTime` most decaying
   // structures use — the engine keeps two different field names.

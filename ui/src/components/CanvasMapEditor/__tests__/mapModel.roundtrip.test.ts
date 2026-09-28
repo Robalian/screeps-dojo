@@ -59,3 +59,20 @@ describe('a map survives being opened', () => {
 		expect(out.controller).toEqual({ x: 26, y: 28 });
 	});
 });
+
+describe('a map keeps fields the panel does not edit', () => {
+	// E27S23 on season: a power-enabled controller lost isPowerEnabled on
+	// open, so the map showed as changed and a save would have cleared it.
+	it('keeps a top-level controller\'s isPowerEnabled', () => {
+		const controller = { x: 20, y: 20, level: 8, owner: 'me', isPowerEnabled: true };
+		expect(roundTrip({ controller }).controller).toEqual(controller);
+	});
+
+	it('keeps extra source and mineral fields', () => {
+		const source = { x: 5, y: 5, id: 'a', energy: 100, energyCapacity: 3000, ticksToRegeneration: 120 };
+		const mineral = { x: 6, y: 6, mineralType: 'X', density: 2, id: 'b', mineralAmount: 5, ticksToRegeneration: 900 };
+		const out = roundTrip({ sources: [source], minerals: [mineral] });
+		expect(out.sources[0]).toEqual(source);
+		expect(out.minerals[0]).toEqual(mineral);
+	});
+});

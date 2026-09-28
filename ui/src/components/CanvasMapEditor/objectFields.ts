@@ -5,14 +5,15 @@
 // still shows in the panel's raw "Advanced" block, so no field is ever hidden —
 // the schema decides what gets a nice control, not what is editable.
 
-import { mineralTypes, allResources } from './gameData';
+import { mineralTypes, allResources, rampartHitsFor, STRUCTURE_HITS } from './gameData';
 import type { EditableObject } from './mapModel';
 
 export type Field =
 	| { kind: 'text'; key: string; label: string; hint?: string; placeholder?: string }
 	| { kind: 'number'; key: string; label: string; min?: number; max?: number; step?: number; hint?: string; suffix?: string }
 	| { kind: 'slider'; key: string; label: string; min: number; max: number; step?: number; hint?: string }
-	| { kind: 'select'; key: string; label: string; options: Array<{ value: string; label: string }>; hint?: string }
+	// `fallback`: what the loader uses when the field is missing (else the first option).
+	| { kind: 'select'; key: string; label: string; options: Array<{ value: string; label: string }>; hint?: string; fallback?: string }
 	| { kind: 'toggle'; key: string; label: string; hint?: string }
 	// A relative clock that the loader turns into an absolute deadline via
 	// `ticks: { <field>: n }` (src/dojoWorld.js applyClocks).
@@ -33,7 +34,12 @@ const BUILDABLE = [
 	'nuker', 'powerSpawn', 'observer', 'extractor', 'container', 'road', 'rampart', 'constructedWall',
 ];
 
-const DEPOSIT_TYPES = ['silicon', 'metal', 'biomass', 'mist'];
+// Every structure that leaves a ruin when destroyed: all of the buildable ones
+// plus the ones only the game places. Keeper lairs and controllers are
+// indestructible, so they never do.
+const RUIN_OF = BUILDABLE.concat(['invaderCore', 'powerBank']);
+
+const DEPOSIT_TYPES =['silicon', 'metal', 'biomass', 'mist'];
 
 // Structures the engine stores a `notifyWhenAttacked` flag on.
 const NOTIFIABLE = new Set([
@@ -82,7 +88,11 @@ export function fieldsFor(object: EditableObject, context: FieldContext): Field[
 
 		case 'deposit':
 			fields.push({ kind: 'select', key: 'depositType', label: 'deposit type', options: options(DEPOSIT_TYPES) });
-			fields.push({ kind: 'number', key: 'cooldown', label: 'harvest cooldown', min: 0, suffix: 'ticks' });
+			// The engine keeps the cooldown as an absolute `cooldownTime` and
+			// derives the next one from `harvested` (DEPOSIT_EXHAUST_*).
+			fields.push({ kind: 'ticks', key: 'cooldownTime', label: 'harvest cooldown' });
+			fields.push({ kind: 'number', key: 'harvested', label: 'harvested so far', min: 0,
+				hint: 'Drives how long each new cooldown is.' });
 			fields.push({ kind: 'ticks', key: 'decayTime', label: 'decays in' });
 			break;
 
@@ -148,9 +158,20 @@ export function fieldsFor(object: EditableObject, context: FieldContext): Field[
 			fields.push({ kind: 'ticks', key: 'decayTime', label: 'decays in' });
 			break;
 
-		case 'ruin':
-			fields.push({ kind: 'select', key: 'structureType', label: 'was a', options: options(BUILDABLE) });
+		case 'ruin': {
+			// Keep an imported type the list does not know (a mod structure) selectable.
+			const was = fieldValue(object, 'structure.type');
+			const types = typeof was === 'string' && !RUIN_OF.includes(was) ? RUIN_OF.concat(was) : RUIN_OF;
+			// A ruin with no record loads as a wall (dojoWorld fillRuinStructure).
+			fields.push({ kind: 'select', key: 'structure.type', label: 'was a', options: options(types), fallback: 'constructedWall' });
 			fields.push({ kind: 'ticks', key: 'decayTime', label: 'decays in' });
+			break;
+		}
+
+		// Not placeable from the palette, but an import brings in-flight ones.
+		case 'nuke':
+			fields.push({ kind: 'ticks', key: 'landTime', label: 'lands in' });
+			fields.push({ kind: 'text', key: 'launchRoomName', label: 'launched from' });
 			break;
 
 		case 'portal':
@@ -221,4 +242,42 @@ export function withTicks(object: EditableObject, key: string, value: number | n
 	else ticks[key] = value;
 	if (Object.keys(ticks).length) next.ticks = ticks; else delete next.ticks;
 	return next;
+}
+
+// A field key may reach into a nested object with a dot: a ruin's "was a" is
+// `structure.type`, because that is where the engine keeps it (processor
+// structures/_destroy.js) — never a top-level `structureType`.
+export function fieldValue(object: EditableObject, key: string): unknown {
+	const dot = key.indexOf('.');
+	if (dot === -1) return object[key];
+	const parent = object[key.slice(0, dot)] as Record<string, unknown> | undefined;
+	return parent && typeof parent === 'object' ? parent[key.slice(dot + 1)] : undefined;
+}
+
+// Writes one field (null/undefined deletes it), keeping what the engine ties to
+// it consistent: a ruin's remembered structure takes its type's max hits.
+export function withField(object: EditableObject, key: string, value: unknown, context: FieldContext): EditableObject {
+	const next = { ...object };
+	const dot = key.indexOf('.');
+	if (dot === -1) {
+		if (value === null || value === undefined) delete next[key];
+		else next[key] = value;
+		return next;
+	}
+	const parentKey = key.slice(0, dot), childKey = key.slice(dot + 1);
+	const parent = { ...(next[parentKey] as Record<string, unknown> | undefined) };
+	if (value === null || value === undefined) delete parent[childKey];
+	else parent[childKey] = value;
+	if (object.type === 'ruin' && key === 'structure.type' && typeof value === 'string') {
+		const hitsMax = ruinHitsMax(value, context.rcl);
+		if (hitsMax) parent.hitsMax = hitsMax; else delete parent.hitsMax;
+		parent.hits = 0;
+	}
+	next[parentKey] = parent;
+	return next;
+}
+
+function ruinHitsMax(type: string, rcl: number): number | undefined {
+	if (type === 'rampart') return rampartHitsFor(rcl);
+	return STRUCTURE_HITS[type] || undefined;
 }
